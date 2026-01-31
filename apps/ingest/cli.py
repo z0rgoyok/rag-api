@@ -6,6 +6,7 @@ from pathlib import Path
 import uuid
 
 from dotenv import load_dotenv
+import httpx
 
 from apps.api.config import load_settings
 from apps.api.db import Db
@@ -68,7 +69,41 @@ def main() -> None:
 
     info = get_schema_info(db)
     if info is None:
-        dim = asyncio.run(lm.probe_embedding_dim(model=settings.lmstudio_embedding_model))
+        try:
+            dim = asyncio.run(lm.probe_embedding_dim(model=settings.lmstudio_embedding_model))
+        except httpx.ConnectError as e:
+            raise SystemExit(
+                "\n".join(
+                    [
+                        "Failed to connect to the OpenAI-compatible inference server.",
+                        f"- LMSTUDIO_BASE_URL={settings.lmstudio_base_url}",
+                        "",
+                        "Fix:",
+                        "- Start LM Studio and enable the local server (port 1234 by default).",
+                        "- If you run ingest via Docker, set LMSTUDIO_BASE_URL to http://host.docker.internal:1234/v1",
+                        "  (localhost inside a container points to the container itself).",
+                        "- Ensure LMSTUDIO_EMBEDDING_MODEL is set to an embedding-capable model name in LM Studio.",
+                        "",
+                        f"Details: {e}",
+                    ]
+                )
+            ) from e
+        except httpx.HTTPError as e:
+            raise SystemExit(
+                "\n".join(
+                    [
+                        "LM Studio request failed while probing embedding dimension.",
+                        f"- LMSTUDIO_BASE_URL={settings.lmstudio_base_url}",
+                        f"- LMSTUDIO_EMBEDDING_MODEL={settings.lmstudio_embedding_model}",
+                        "",
+                        "Fix:",
+                        "- Ensure the LM Studio server is running and the model name matches exactly.",
+                        "- Ensure the selected model supports the /embeddings endpoint.",
+                        "",
+                        f"Details: {e}",
+                    ]
+                )
+            ) from e
         ensure_schema(db, embedding_dim=dim)
 
     if args.cmd == "ingest":

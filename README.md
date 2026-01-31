@@ -88,7 +88,8 @@ uvicorn apps.api.main:app --reload --port 18080
 ## Configuration
 
 - LM Studio (OpenAI-compatible):
-  - Default: `LMSTUDIO_BASE_URL=http://localhost:1234/v1` (compose uses `http://host.docker.internal:1234/v1`)
+  - Default: `LMSTUDIO_BASE_URL=http://localhost:1234/v1`
+  - Docker Desktop/compose: use `LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1` (containers can’t reach your host via `localhost`)
   - Models: `LMSTUDIO_CHAT_MODEL`, `LMSTUDIO_EMBEDDING_MODEL`
 - Ports:
   - API: `API_PORT` (default `18080`)

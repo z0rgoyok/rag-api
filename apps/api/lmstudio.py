@@ -11,7 +11,7 @@ class LmStudioClient:
     base_url: str
 
     async def embeddings(self, *, model: str, input_texts: list[str]) -> list[list[float]]:
-        async with httpx.AsyncClient(base_url=self.base_url, timeout=120.0) as client:
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=httpx.Timeout(120.0, connect=5.0)) as client:
             r = await client.post("/embeddings", json={"model": model, "input": input_texts})
             r.raise_for_status()
             data = r.json()
@@ -30,4 +30,3 @@ class LmStudioClient:
         if not vectors or not vectors[0]:
             raise RuntimeError("LM Studio embeddings returned empty vector")
         return len(vectors[0])
-
