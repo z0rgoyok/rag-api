@@ -42,8 +42,9 @@ dist/
 *.log
 
 # Local data (keep corpus folder structure)
-var/*
+var/**
 !var/pdfs/
+var/pdfs/**
 !var/pdfs/.gitkeep
 
 # Docker local state
