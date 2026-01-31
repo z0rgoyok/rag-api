@@ -87,10 +87,14 @@ uvicorn apps.api.main:app --reload --port 18080
 
 ## Configuration
 
-- LM Studio (OpenAI-compatible):
-  - Default: `LMSTUDIO_BASE_URL=http://localhost:1234/v1`
-  - Docker Desktop/compose: use `LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1` (containers can’t reach your host via `localhost`)
-  - Models: `LMSTUDIO_CHAT_MODEL`, `LMSTUDIO_EMBEDDING_MODEL`
+- Inference provider (OpenAI-compatible): LM Studio *or* external providers (OpenAI, etc.)
+  - Base URL: `INFERENCE_BASE_URL` (preferred) or legacy `LMSTUDIO_BASE_URL`
+    - Local LM Studio (non-docker): `http://localhost:1234/v1`
+    - Docker Desktop/compose -> host LM Studio: `http://host.docker.internal:1234/v1` (containers can’t reach your host via `localhost`)
+  - API key (optional): `INFERENCE_API_KEY` (preferred) or legacy `LMSTUDIO_API_KEY`
+  - Models: `INFERENCE_CHAT_MODEL`, `INFERENCE_EMBEDDING_MODEL` (or legacy `LMSTUDIO_*`)
+  - Optional split: set `CHAT_*` and/or `EMBEDDINGS_*` to use different providers for chat vs embeddings
+  - Embeddings adapter: `EMBEDDINGS_BACKEND` (`openai_compat` default, or `litellm`)
 - Ports:
   - API: `API_PORT` (default `18080`)
   - Postgres: `PG_PORT` (default `56473`)

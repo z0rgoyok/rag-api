@@ -15,7 +15,7 @@ def main() -> None:
     load_dotenv()
     settings = load_settings()
     db = Db(settings.database_url)
-    lm = LmStudioClient(settings.lmstudio_base_url)
+    lm = LmStudioClient(settings.lmstudio_base_url, api_key=settings.lmstudio_api_key)
 
     info = get_schema_info(db)
     if info is None:
@@ -41,4 +41,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

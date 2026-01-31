@@ -21,8 +21,21 @@ services:
       dockerfile: Dockerfile
     environment:
       DATABASE_URL: postgresql://rag:rag@db:5432/rag
+      # Provider-neutral (preferred). Leave unset to use LMSTUDIO_* defaults below.
+      INFERENCE_BASE_URL: ${INFERENCE_BASE_URL:-}
+      INFERENCE_API_KEY: ${INFERENCE_API_KEY:-}
+      INFERENCE_CHAT_MODEL: ${INFERENCE_CHAT_MODEL:-}
+      INFERENCE_EMBEDDING_MODEL: ${INFERENCE_EMBEDDING_MODEL:-}
+      # Optional split providers (override INFERENCE_* for their respective purpose).
+      CHAT_BASE_URL: ${CHAT_BASE_URL:-}
+      CHAT_API_KEY: ${CHAT_API_KEY:-}
+      CHAT_MODEL: ${CHAT_MODEL:-}
+      EMBEDDINGS_BASE_URL: ${EMBEDDINGS_BASE_URL:-}
+      EMBEDDINGS_API_KEY: ${EMBEDDINGS_API_KEY:-}
+      EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-}
       # From Docker Desktop on macOS:
       LMSTUDIO_BASE_URL: ${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
+      LMSTUDIO_API_KEY: ${LMSTUDIO_API_KEY:-}
       LMSTUDIO_CHAT_MODEL: ${LMSTUDIO_CHAT_MODEL:-local-model}
       LMSTUDIO_EMBEDDING_MODEL: ${LMSTUDIO_EMBEDDING_MODEL:-local-embedding-model}
       TOP_K: ${TOP_K:-6}

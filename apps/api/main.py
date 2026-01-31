@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-import httpx
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -11,6 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from .auth import Principal, auth_dependency
 from .config import load_settings
 from .db import Db
+from .embeddings_client import build_embeddings_client
 from .lmstudio import LmStudioClient
 from .retrieval import build_context, retrieve_top_k
 from .schema import ensure_schema, get_schema_info
@@ -20,7 +20,8 @@ from .models import ChatCompletionsRequest
 load_dotenv()
 settings = load_settings()
 db = Db(settings.database_url)
-lm = LmStudioClient(settings.lmstudio_base_url)
+chat_client = LmStudioClient(settings.chat_base_url, api_key=settings.chat_api_key)
+embed_client = build_embeddings_client(settings)
 
 app = FastAPI(title="rag-api", version="0.1.0")
 auth_dep = auth_dependency(db, settings.allow_anonymous)
@@ -41,7 +42,7 @@ async def _startup() -> None:
         # Best effort: if LM Studio isn't up yet, keep API running; schema can be
         # initialized by running ingestion once (it will probe dim).
         try:
-            dim = await lm.probe_embedding_dim(model=settings.lmstudio_embedding_model)
+            dim = await embed_client.probe_embedding_dim(model=settings.embeddings_model)
         except Exception:
             return
         ensure_schema(db, embedding_dim=dim)
@@ -64,7 +65,7 @@ async def chat_completions(
     context_text = ""
     sources: list[dict[str, Any]] = []
     if req.rag and user_text.strip():
-        qvec = (await lm.embeddings(model=settings.lmstudio_embedding_model, input_texts=[user_text]))[0]
+        qvec = (await embed_client.embeddings(model=settings.embeddings_model, input_texts=[user_text]))[0]
         segments = retrieve_top_k(db, query_embedding=qvec, k=settings.top_k)
         context_text, sources = build_context(segments, max_chars=settings.max_context_chars, include_sources=include_sources)
 
@@ -80,7 +81,7 @@ async def chat_completions(
         ]
 
     payload: dict[str, Any] = {
-        "model": req.model or settings.lmstudio_chat_model,
+        "model": req.model or settings.chat_model,
         "messages": messages,
         "stream": bool(req.stream),
     }
@@ -91,17 +92,14 @@ async def chat_completions(
 
     if not req.stream:
         # Non-streaming passthrough (still adds sources if allowed).
-        async with httpx.AsyncClient(base_url=settings.lmstudio_base_url, timeout=120.0) as client:
-            r = await client.post("/chat/completions", json=payload)
-            r.raise_for_status()
-            data = r.json()
-            if include_sources:
-                data["sources"] = sources
-            return JSONResponse(data)
+        data = await chat_client.chat_completions(payload)
+        if include_sources:
+            data["sources"] = sources
+        return JSONResponse(data)
 
     async def _sse() -> Any:
         injected = False
-        async for chunk in lm.stream_chat_completions(payload):
+        async for chunk in chat_client.stream_chat_completions(payload):
             if include_sources and (not injected) and b"data: [DONE]" in chunk:
                 before, after = chunk.split(b"data: [DONE]", 1)
                 if before:

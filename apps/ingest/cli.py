@@ -10,14 +10,14 @@ import httpx
 
 from apps.api.config import load_settings
 from apps.api.db import Db
-from apps.api.lmstudio import LmStudioClient
+from apps.api.embeddings_client import build_embeddings_client
 from apps.api.schema import ensure_schema, get_schema_info
 from .chunking import chunk_text_pages
 from .pdf_extract import extract_pdf_text_pages
 from .store import insert_embeddings, insert_segments, sha256_file, upsert_document
 
 
-async def ingest_pdf(db: Db, lm: LmStudioClient, *, pdf_path: Path, embedding_model: str) -> None:
+async def ingest_pdf(db: Db, lm: object, *, pdf_path: Path, embedding_model: str) -> None:
     file_hash = sha256_file(pdf_path)
     doc = upsert_document(db, source_path=str(pdf_path), title=pdf_path.name, sha256=file_hash)
     if doc.up_to_date:
@@ -46,7 +46,7 @@ async def ingest_pdf(db: Db, lm: LmStudioClient, *, pdf_path: Path, embedding_mo
 
     insert_segments(db, document_id=doc.id, segments=segment_rows)
 
-    embeddings = await lm.embeddings(model=embedding_model, input_texts=[c.content for c in chunks])
+    embeddings = await getattr(lm, "embeddings")(model=embedding_model, input_texts=[c.content for c in chunks])
     embed_rows = []
     for seg_id, vec in zip(segment_ids, embeddings):
         embed_rows.append({"segment_id": seg_id, "embedding": vec})
@@ -57,7 +57,7 @@ def main() -> None:
     load_dotenv()
     settings = load_settings()
     db = Db(settings.database_url)
-    lm = LmStudioClient(settings.lmstudio_base_url)
+    embed_client = build_embeddings_client(settings)
 
     parser = argparse.ArgumentParser(prog="rag-ingest")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -70,19 +70,19 @@ def main() -> None:
     info = get_schema_info(db)
     if info is None:
         try:
-            dim = asyncio.run(lm.probe_embedding_dim(model=settings.lmstudio_embedding_model))
+            dim = asyncio.run(getattr(embed_client, "probe_embedding_dim")(model=settings.embeddings_model))
         except httpx.ConnectError as e:
             raise SystemExit(
                 "\n".join(
                     [
                         "Failed to connect to the OpenAI-compatible inference server.",
-                        f"- LMSTUDIO_BASE_URL={settings.lmstudio_base_url}",
+                        f"- EMBEDDINGS_BASE_URL={settings.embeddings_base_url}",
                         "",
                         "Fix:",
-                        "- Start LM Studio and enable the local server (port 1234 by default).",
-                        "- If you run ingest via Docker, set LMSTUDIO_BASE_URL to http://host.docker.internal:1234/v1",
+                        "- Start your OpenAI-compatible server (LM Studio or any external provider base URL).",
+                        "- If you run ingest via Docker and target LM Studio on the host, set EMBEDDINGS_BASE_URL to http://host.docker.internal:1234/v1",
                         "  (localhost inside a container points to the container itself).",
-                        "- Ensure LMSTUDIO_EMBEDDING_MODEL is set to an embedding-capable model name in LM Studio.",
+                        "- Ensure EMBEDDINGS_MODEL is set to an embedding-capable model name.",
                         "",
                         f"Details: {e}",
                     ]
@@ -92,12 +92,12 @@ def main() -> None:
             raise SystemExit(
                 "\n".join(
                     [
-                        "LM Studio request failed while probing embedding dimension.",
-                        f"- LMSTUDIO_BASE_URL={settings.lmstudio_base_url}",
-                        f"- LMSTUDIO_EMBEDDING_MODEL={settings.lmstudio_embedding_model}",
+                        "Inference server request failed while probing embedding dimension.",
+                        f"- EMBEDDINGS_BASE_URL={settings.embeddings_base_url}",
+                        f"- EMBEDDINGS_MODEL={settings.embeddings_model}",
                         "",
                         "Fix:",
-                        "- Ensure the LM Studio server is running and the model name matches exactly.",
+                        "- Ensure the server is running and the model name matches exactly.",
                         "- Ensure the selected model supports the /embeddings endpoint.",
                         "",
                         f"Details: {e}",
@@ -114,7 +114,7 @@ def main() -> None:
 
         async def _run() -> None:
             for p in pdfs:
-                await ingest_pdf(db, lm, pdf_path=p, embedding_model=settings.lmstudio_embedding_model)
+                await ingest_pdf(db, embed_client, pdf_path=p, embedding_model=settings.embeddings_model)
 
         asyncio.run(_run())
 
