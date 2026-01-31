@@ -43,6 +43,11 @@ def upsert_document(db: Db, *, source_path: str, title: str, sha256: str) -> Sto
         return StoredDocument(id=doc_id, up_to_date=False)
 
 
+def delete_document_by_source_path(db: Db, *, source_path: str) -> None:
+    with db.connect() as conn:
+        execute(conn, "delete from documents where source_path = %(p)s", {"p": source_path})
+
+
 def insert_segments(db: Db, *, document_id: uuid.UUID, segments: Iterable[dict]) -> None:
     with db.connect() as conn:
         execute_many(

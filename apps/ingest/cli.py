@@ -14,12 +14,15 @@ from apps.api.embeddings_client import EmbeddingsClient, build_embeddings_client
 from apps.api.schema import ensure_schema, get_schema_info
 from .chunking import chunk_text_pages
 from .pdf_extract import extract_pdf_text_pages
-from .store import insert_embeddings, insert_segments, sha256_file, upsert_document
+from .store import delete_document_by_source_path, insert_embeddings, insert_segments, sha256_file, upsert_document
 
 
-async def ingest_pdf(db: Db, lm: EmbeddingsClient, *, pdf_path: Path, embedding_model: str) -> None:
+async def ingest_pdf(db: Db, lm: EmbeddingsClient, *, pdf_path: Path, embedding_model: str, force: bool) -> None:
     file_hash = sha256_file(pdf_path)
-    doc = upsert_document(db, source_path=str(pdf_path), title=pdf_path.name, sha256=file_hash)
+    source_path = str(pdf_path)
+    if force:
+        delete_document_by_source_path(db, source_path=source_path)
+    doc = upsert_document(db, source_path=source_path, title=pdf_path.name, sha256=file_hash)
     if doc.up_to_date:
         return
 
@@ -64,6 +67,7 @@ def main() -> None:
 
     p_ingest = sub.add_parser("ingest", help="Ingest PDFs from a directory")
     p_ingest.add_argument("--pdf-dir", required=True, type=str)
+    p_ingest.add_argument("--force", action="store_true", help="Re-ingest even if file hash unchanged")
 
     args = parser.parse_args()
 
@@ -114,7 +118,7 @@ def main() -> None:
 
         async def _run() -> None:
             for p in pdfs:
-                await ingest_pdf(db, embed_client, pdf_path=p, embedding_model=settings.embeddings_model)
+                await ingest_pdf(db, embed_client, pdf_path=p, embedding_model=settings.embeddings_model, force=bool(args.force))
 
         asyncio.run(_run())
 
