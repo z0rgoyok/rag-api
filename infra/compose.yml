@@ -21,6 +21,7 @@ services:
       dockerfile: Dockerfile
     environment:
       DATABASE_URL: postgresql://rag:rag@db:5432/rag
+      RAG_REPO_ROOT: /app
       # Provider-neutral (preferred). Leave unset to use LMSTUDIO_* defaults below.
       INFERENCE_BASE_URL: ${INFERENCE_BASE_URL:-}
       INFERENCE_API_KEY: ${INFERENCE_API_KEY:-}
@@ -41,10 +42,14 @@ services:
       TOP_K: ${TOP_K:-6}
       MAX_CONTEXT_CHARS: ${MAX_CONTEXT_CHARS:-24000}
       ALLOW_ANONYMOUS: ${ALLOW_ANONYMOUS:-false}
+      PDF_TEXT_EXTRACTOR: ${PDF_TEXT_EXTRACTOR:-}
+      PDF_DUMP_MD: ${PDF_DUMP_MD:-}
+      PDF_DUMP_DIR: ${PDF_DUMP_DIR:-}
     ports:
       - "${API_PORT:-18080}:8080"
     volumes:
       - ../var/pdfs:/data/pdfs:ro
+      - ../var/extracted:/app/var/extracted
     depends_on:
       db:
         condition: service_healthy
