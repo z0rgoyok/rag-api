@@ -95,6 +95,11 @@ uvicorn apps.api.main:app --reload --port 18080
   - Models: `INFERENCE_CHAT_MODEL`, `INFERENCE_EMBEDDING_MODEL` (or legacy `LMSTUDIO_*`)
   - Optional split: set `CHAT_*` and/or `EMBEDDINGS_*` to use different providers for chat vs embeddings
   - Embeddings adapter: `EMBEDDINGS_BACKEND` (`openai_compat` default, or `litellm`)
+  - Vertex AI via LiteLLM:
+    - Set `EMBEDDINGS_BACKEND=litellm`
+    - Model example: `EMBEDDINGS_MODEL=vertex_ai/text-multilingual-embedding-002`
+    - Required: `EMBEDDINGS_VERTEX_PROJECT`, `EMBEDDINGS_VERTEX_LOCATION`
+    - Auth: Application Default Credentials (recommended) or `EMBEDDINGS_VERTEX_CREDENTIALS` path
 - Ports:
   - API: `API_PORT` (default `18080`)
   - Postgres: `PG_PORT` (default `56473`)

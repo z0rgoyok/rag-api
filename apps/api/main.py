@@ -65,7 +65,7 @@ async def chat_completions(
     context_text = ""
     sources: list[dict[str, Any]] = []
     if req.rag and user_text.strip():
-        qvec = (await embed_client.embeddings(model=settings.embeddings_model, input_texts=[user_text]))[0]
+        qvec = (await embed_client.embeddings(model=settings.embeddings_model, input_texts=[user_text], input_type="RETRIEVAL_QUERY"))[0]
         segments = retrieve_top_k(db, query_embedding=qvec, k=settings.top_k)
         context_text, sources = build_context(segments, max_chars=settings.max_context_chars, include_sources=include_sources)
 

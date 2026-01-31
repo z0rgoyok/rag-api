@@ -10,6 +10,12 @@ compose_file() {
 }
 
 dc() {
+  local env_file
+  env_file="$(repo_root)/.env"
+  if [[ -f "$env_file" ]]; then
+    docker compose --env-file "$env_file" -f "$(compose_file)" "$@"
+    return
+  fi
   docker compose -f "$(compose_file)" "$@"
 }
 
@@ -37,4 +43,3 @@ wait_http_ok() {
   done
   return 1
 }
-

@@ -10,14 +10,14 @@ import httpx
 
 from apps.api.config import load_settings
 from apps.api.db import Db
-from apps.api.embeddings_client import build_embeddings_client
+from apps.api.embeddings_client import EmbeddingsClient, build_embeddings_client
 from apps.api.schema import ensure_schema, get_schema_info
 from .chunking import chunk_text_pages
 from .pdf_extract import extract_pdf_text_pages
 from .store import insert_embeddings, insert_segments, sha256_file, upsert_document
 
 
-async def ingest_pdf(db: Db, lm: object, *, pdf_path: Path, embedding_model: str) -> None:
+async def ingest_pdf(db: Db, lm: EmbeddingsClient, *, pdf_path: Path, embedding_model: str) -> None:
     file_hash = sha256_file(pdf_path)
     doc = upsert_document(db, source_path=str(pdf_path), title=pdf_path.name, sha256=file_hash)
     if doc.up_to_date:
@@ -46,7 +46,7 @@ async def ingest_pdf(db: Db, lm: object, *, pdf_path: Path, embedding_model: str
 
     insert_segments(db, document_id=doc.id, segments=segment_rows)
 
-    embeddings = await getattr(lm, "embeddings")(model=embedding_model, input_texts=[c.content for c in chunks])
+    embeddings = await lm.embeddings(model=embedding_model, input_texts=[c.content for c in chunks], input_type="RETRIEVAL_DOCUMENT")
     embed_rows = []
     for seg_id, vec in zip(segment_ids, embeddings):
         embed_rows.append({"segment_id": seg_id, "embedding": vec})
@@ -70,7 +70,7 @@ def main() -> None:
     info = get_schema_info(db)
     if info is None:
         try:
-            dim = asyncio.run(getattr(embed_client, "probe_embedding_dim")(model=settings.embeddings_model))
+            dim = asyncio.run(embed_client.probe_embedding_dim(model=settings.embeddings_model))
         except httpx.ConnectError as e:
             raise SystemExit(
                 "\n".join(

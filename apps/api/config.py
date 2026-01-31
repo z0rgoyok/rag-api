@@ -14,6 +14,9 @@ class Settings:
     embeddings_base_url: str
     embeddings_api_key: str | None
     embeddings_model: str
+    embeddings_vertex_project: str | None
+    embeddings_vertex_location: str | None
+    embeddings_vertex_credentials: str | None
     embedding_dim: int | None
     top_k: int
     max_context_chars: int
@@ -39,6 +42,9 @@ def load_settings() -> Settings:
     embeddings_api_key = os.getenv("EMBEDDINGS_API_KEY") or default_api_key
     embeddings_model = os.getenv("EMBEDDINGS_MODEL") or os.getenv("INFERENCE_EMBEDDING_MODEL") or os.getenv("LMSTUDIO_EMBEDDING_MODEL") or "local-embedding-model"
     embeddings_backend = (os.getenv("EMBEDDINGS_BACKEND") or "openai_compat").strip().lower()
+    embeddings_vertex_project = os.getenv("EMBEDDINGS_VERTEX_PROJECT") or os.getenv("VERTEX_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or None
+    embeddings_vertex_location = os.getenv("EMBEDDINGS_VERTEX_LOCATION") or os.getenv("VERTEX_LOCATION") or None
+    embeddings_vertex_credentials = os.getenv("EMBEDDINGS_VERTEX_CREDENTIALS") or os.getenv("VERTEX_CREDENTIALS") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or None
 
     return Settings(
         database_url=os.getenv("DATABASE_URL", "postgresql://rag:rag@localhost:56473/rag"),
@@ -49,6 +55,9 @@ def load_settings() -> Settings:
         embeddings_base_url=embeddings_base_url,
         embeddings_api_key=embeddings_api_key,
         embeddings_model=embeddings_model,
+        embeddings_vertex_project=embeddings_vertex_project,
+        embeddings_vertex_location=embeddings_vertex_location,
+        embeddings_vertex_credentials=embeddings_vertex_credentials,
         embedding_dim=int(os.environ["EMBEDDING_DIM"]) if os.getenv("EMBEDDING_DIM") else None,
         top_k=int(os.getenv("TOP_K", "6")),
         max_context_chars=int(os.getenv("MAX_CONTEXT_CHARS", "24000")),
