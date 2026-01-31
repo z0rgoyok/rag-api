@@ -1,0 +1,28 @@
+[project]
+name = "rag-api"
+version = "0.1.0"
+description = "Local, streaming RAG API for a private document corpus"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "httpx>=0.26",
+  "psycopg[binary]>=3.1",
+  "pydantic>=2.6",
+  "python-dotenv>=1.0",
+  "PyMuPDF>=1.23",
+]
+
+[project.scripts]
+rag-ingest = "apps.ingest.cli:main"
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["apps*"]

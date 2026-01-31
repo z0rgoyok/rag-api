@@ -1,0 +1,50 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors/IDEs
+.idea/
+.vscode/
+
+# Environment
+.env
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.dylib
+*.egg-info/
+.Python
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Virtualenvs
+.venv/
+venv/
+ENV/
+env/
+
+# Build artifacts
+build/
+dist/
+.eggs/
+
+# Logs
+*.log
+
+# Local data (keep corpus folder structure)
+var/*
+!var/pdfs/
+!var/pdfs/.gitkeep
+
+# Docker local state
+infra/pgdata/
