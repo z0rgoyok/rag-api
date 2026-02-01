@@ -19,8 +19,10 @@ from core.schema import ensure_schema, get_schema_info
 from .auth import Principal, auth_dependency
 from .chat_client import build_chat_client
 from .logging_config import configure_logging
-from .models import ChatCompletionsRequest
+from .models import AgentChatRequest, AgentChatResponse, ChatCompletionsRequest
 from .retrieval import build_context, retrieve_top_k
+
+from apps.agent.agent import Agent, AgentConfig
 
 
 load_dotenv()
@@ -233,3 +235,61 @@ async def chat_completions(
                 )
 
     return StreamingResponse(_sse(), media_type="text/event-stream")
+
+
+@app.post("/v1/agent/chat", response_model=AgentChatResponse)
+async def agent_chat(
+    req: AgentChatRequest,
+    request: Request,
+    principal: Principal = Depends(auth_dep),
+) -> AgentChatResponse:
+    """Agentic RAG endpoint - multi-step reasoning with iterative retrieval."""
+    request_id = getattr(getattr(request, "state", None), "request_id", None) or str(uuid.uuid4())
+    include_sources = bool(req.citations) and bool(principal.citations_enabled)
+
+    log.info(
+        "request_id=%s agent_chat query=%s max_iterations=%d include_sources=%s",
+        request_id,
+        req.query[:100],
+        req.max_iterations,
+        include_sources,
+    )
+
+    config = AgentConfig(
+        max_iterations=req.max_iterations,
+        top_k=settings.top_k,
+        include_sources=include_sources,
+    )
+
+    agent = Agent(
+        db=db,
+        embed_client=embed_client,
+        chat_client=chat_client,
+        settings=settings,
+        config=config,
+    )
+
+    try:
+        result = await agent.run(req.query)
+    except Exception as e:
+        log.error("request_id=%s agent_error=%s", request_id, type(e).__name__)
+        return JSONResponse(
+            {"error": {"message": "Agent execution failed"}},
+            status_code=502,
+        )
+
+    log.info(
+        "request_id=%s agent_complete iterations=%d searches=%d answer_len=%d",
+        request_id,
+        result.iterations,
+        result.search_count,
+        len(result.answer),
+    )
+
+    return AgentChatResponse(
+        answer=result.answer,
+        sources=result.sources if include_sources else [],
+        reasoning_steps=result.reasoning_steps,
+        search_count=result.search_count,
+        iterations=result.iterations,
+    )

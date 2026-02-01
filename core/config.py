@@ -7,6 +7,7 @@ import os
 from typing import Literal
 
 ChunkingStrategyType = Literal["sliding", "recursive", "semantic"]
+RerankingStrategyType = Literal["none", "cross_encoder", "cohere"]
 
 
 @dataclass(frozen=True)

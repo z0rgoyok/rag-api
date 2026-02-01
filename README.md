@@ -12,6 +12,7 @@ Goals:
 
 - `var/pdfs/` — drop PDFs here (your corpus source-of-truth; can contain subfolders).
 - `apps/api/` — FastAPI service (auth, entitlements, retrieval, streaming proxy to LM Studio).
+- `apps/agent/` — Agentic RAG module (ReAct pattern, iterative retrieval).
 - `apps/ingest/` — CLI to ingest PDFs into Postgres+pgvector.
 - `infra/` — docker compose + DB init.
 - `scripts/` — common operational workflows (compose up/down, ingest, etc).
@@ -120,6 +121,7 @@ Note: if you run Docker Compose manually with `-f infra/compose.yml`, pass the e
 ## API
 
 - `POST /v1/chat/completions` — OpenAI-compatible chat completions (supports `stream=true`).
+- `POST /v1/agent/chat` — Agentic RAG with iterative retrieval (see below).
 - `GET /healthz` — health check.
 
 Auth:
@@ -144,6 +146,41 @@ curl -N \
   -d '{"model":"local-model","stream":true,"rag":true,"citations":false,"messages":[{"role":"user","content":"What does the corpus say about X?"}]}' \
   http://localhost:18080/v1/chat/completions
 ```
+
+### Agentic RAG
+
+For complex questions requiring multi-step reasoning or synthesis from multiple sources, use the agentic endpoint:
+
+```bash
+curl -sS \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Compare approaches to error handling across the corpus","max_iterations":3,"citations":true}' \
+  http://localhost:18080/v1/agent/chat
+```
+
+Response:
+```json
+{
+  "answer": "Based on the documents...",
+  "sources": [{"title": "...", "path": "...", "page": 42, "score": 0.89}],
+  "reasoning_steps": ["Calling search: {...}", "Refining search..."],
+  "search_count": 2,
+  "iterations": 2
+}
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `query` | string | required | User's question |
+| `max_iterations` | int | 3 | Max agent iterations (1-10) |
+| `citations` | bool | false | Include sources (if entitled) |
+
+When to use agentic vs standard RAG:
+- **Standard RAG** (`/v1/chat/completions`): Simple factual questions, low latency required
+- **Agentic RAG** (`/v1/agent/chat`): Comparative analysis, synthesis from multiple sources, ambiguous queries
+
+See `apps/agent/README.md` for detailed documentation.
 
 ## Notes
 
