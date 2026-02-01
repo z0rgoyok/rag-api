@@ -15,6 +15,9 @@ dependencies = [
   "PyMuPDF>=1.26.6",
   "pymupdf4llm>=0.2.9",
   "pymupdf-layout>=1.26.6",
+  # Chunking strategies
+  "semchunk>=3.0.0",
+  "chonkie[semantic]>=1.0.0",
 ]
 
 [project.scripts]
@@ -29,4 +32,4 @@ package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["apps*"]
+include = ["apps*", "core*"]

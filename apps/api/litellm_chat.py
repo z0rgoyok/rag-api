@@ -41,10 +41,15 @@ class LiteLLMChatClient:
         vertex_location: str | None = None,
         vertex_credentials: str | None = None,
     ) -> None:
+        import os
+
         self._api_key = api_key or None
         self._vertex_project = vertex_project or None
         self._vertex_location = vertex_location or None
         self._vertex_credentials = vertex_credentials or None
+        # LiteLLM reads credentials from GOOGLE_APPLICATION_CREDENTIALS env var
+        if self._vertex_credentials and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self._vertex_credentials
 
     def _litellm_kwargs_for_model(self, model: str) -> dict[str, Any]:
         # LiteLLM uses special kwargs for Vertex AI routing; keep them explicit and testable.

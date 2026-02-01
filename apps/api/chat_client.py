@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator, Protocol
 
-from .config import Settings
-from .lmstudio import LmStudioClient
+from core.config import Settings
+from core.lmstudio import LmStudioClient
 
 
 class ChatClient(Protocol):

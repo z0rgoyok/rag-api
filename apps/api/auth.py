@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import Header, HTTPException, status
 
-from .db import Db, fetch_one
+from core.db import Db, fetch_one
 
 
 @dataclass(frozen=True)

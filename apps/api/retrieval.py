@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .db import Db, fetch_all
-from .pgvector import vector_literal
+from core.db import Db, fetch_all
+from core.pgvector import vector_literal
 
 
 @dataclass(frozen=True)

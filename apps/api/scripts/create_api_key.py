@@ -5,10 +5,10 @@ import secrets
 
 from dotenv import load_dotenv
 
-from ..config import load_settings
-from ..db import Db, execute
-from ..embeddings_client import build_embeddings_client
-from ..schema import ensure_schema, get_schema_info
+from core.config import load_settings
+from core.db import Db, execute
+from core.embeddings_client import build_embeddings_client
+from core.schema import ensure_schema, get_schema_info
 
 
 def main() -> None:

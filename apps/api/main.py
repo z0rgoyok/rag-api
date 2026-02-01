@@ -11,15 +11,16 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from core.config import load_settings
+from core.db import Db
+from core.embeddings_client import build_embeddings_client
+from core.schema import ensure_schema, get_schema_info
+
 from .auth import Principal, auth_dependency
 from .chat_client import build_chat_client
-from .config import load_settings
-from .db import Db
-from .embeddings_client import build_embeddings_client
 from .logging_config import configure_logging
-from .retrieval import build_context, retrieve_top_k
-from .schema import ensure_schema, get_schema_info
 from .models import ChatCompletionsRequest
+from .retrieval import build_context, retrieve_top_k
 
 
 load_dotenv()

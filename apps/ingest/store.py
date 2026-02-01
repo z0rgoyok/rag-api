@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Iterable
 import uuid
 
-from apps.api.db import Db, execute, execute_many, fetch_one
-from apps.api.pgvector import vector_literal
+from core.db import Db, execute, execute_many, fetch_one
+from core.pgvector import vector_literal
 
 
 def sha256_file(path: Path) -> str:

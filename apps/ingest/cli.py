@@ -8,16 +8,25 @@ import uuid
 from dotenv import load_dotenv
 import httpx
 
-from apps.api.config import load_settings
-from apps.api.db import Db
-from apps.api.embeddings_client import EmbeddingsClient, build_embeddings_client
-from apps.api.schema import ensure_schema, get_schema_info
-from .chunking import chunk_text_pages
+from core.config import load_settings
+from core.db import Db
+from core.embeddings_client import EmbeddingsClient, build_embeddings_client
+from core.schema import ensure_schema, get_schema_info
+from core.chunking import ChunkingStrategy, PageText, build_chunking_strategy
+from core.chunking.factory import ChunkingSettings
 from .pdf_extract import extract_pdf_text_pages
 from .store import delete_document_by_source_path, insert_embeddings, insert_segments, sha256_file, upsert_document
 
 
-async def ingest_pdf(db: Db, lm: EmbeddingsClient, *, pdf_path: Path, embedding_model: str, force: bool) -> None:
+async def ingest_pdf(
+    db: Db,
+    lm: EmbeddingsClient,
+    chunker: ChunkingStrategy,
+    *,
+    pdf_path: Path,
+    embedding_model: str,
+    force: bool,
+) -> None:
     file_hash = sha256_file(pdf_path)
     source_path = str(pdf_path)
     if force:
@@ -27,8 +36,8 @@ async def ingest_pdf(db: Db, lm: EmbeddingsClient, *, pdf_path: Path, embedding_
         return
 
     pages = extract_pdf_text_pages(pdf_path)
-    page_pairs = [(p.page, p.text) for p in pages]
-    chunks = chunk_text_pages(page_pairs)
+    page_texts = [PageText(page=p.page, text=p.text) for p in pages]
+    chunks = chunker.chunk(page_texts)
     if not chunks:
         return
 
@@ -61,6 +70,14 @@ def main() -> None:
     settings = load_settings()
     db = Db(settings.database_url)
     embed_client = build_embeddings_client(settings)
+    chunker = build_chunking_strategy(
+        ChunkingSettings(
+            strategy=settings.chunking_strategy,
+            chunk_size=settings.chunking_chunk_size,
+            overlap_chars=settings.chunking_overlap_chars,
+            similarity_threshold=settings.chunking_similarity_threshold,
+        )
+    )
 
     parser = argparse.ArgumentParser(prog="rag-ingest")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -118,7 +135,7 @@ def main() -> None:
 
         async def _run() -> None:
             for p in pdfs:
-                await ingest_pdf(db, embed_client, pdf_path=p, embedding_model=settings.embeddings_model, force=bool(args.force))
+                await ingest_pdf(db, embed_client, chunker, pdf_path=p, embedding_model=settings.embeddings_model, force=bool(args.force))
 
         asyncio.run(_run())
 

@@ -15,10 +15,28 @@ Scope: this repository (`~/dev/tools/rag-api`).
 
 ## Architecture rules
 
-- Keep a strict separation:
-  - `apps/api/`: HTTP transport, auth, entitlements, request/response mapping, streaming proxy.
-  - `apps/ingest/`: offline ingestion jobs/CLI.
-  - `apps/api/schema.py`: DB schema management; avoid migrations for MVP, but keep schema changes centralized.
+### Module structure
+
+```
+rag-api/
+  core/                  # shared infrastructure (no app-specific logic)
+    config.py            # Settings, load_settings()
+    db.py                # Db connection, query helpers
+    schema.py            # DB schema bootstrap
+    pgvector.py          # pgvector utilities
+    lmstudio.py          # OpenAI-compatible HTTP client
+    embeddings_client.py # EmbeddingsClient protocol + implementations
+
+  apps/
+    api/                 # HTTP API (depends on core/, NOT on ingest/)
+    ingest/              # CLI ingestion (depends on core/, NOT on api/)
+```
+
+### Dependency rules
+
+- `core/` contains shared infrastructure: config, DB, schema, embedding clients.
+- `apps/api/` and `apps/ingest/` depend only on `core/`, never on each other.
+- Each app is an independent deployable unit; cross-app imports are forbidden.
 - Do not leak infrastructure details into strategy interfaces; prefer small, explicit contracts.
 - No hidden globals for auth/entitlements: access checks must be explicit and testable.
 

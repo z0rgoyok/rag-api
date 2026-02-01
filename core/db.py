@@ -34,4 +34,3 @@ def execute(conn: psycopg.Connection, query: str, params: Optional[dict[str, Any
 def execute_many(conn: psycopg.Connection, query: str, param_rows: Iterable[dict[str, Any]]) -> None:
     with conn.cursor() as cur:
         cur.executemany(query, list(param_rows))
-

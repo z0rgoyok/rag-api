@@ -4,6 +4,11 @@ from dataclasses import dataclass
 import os
 
 
+from typing import Literal
+
+ChunkingStrategyType = Literal["sliding", "recursive", "semantic"]
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str
@@ -25,6 +30,11 @@ class Settings:
     top_k: int
     max_context_chars: int
     allow_anonymous: bool
+    # Chunking settings
+    chunking_strategy: ChunkingStrategyType
+    chunking_chunk_size: int
+    chunking_overlap_chars: int
+    chunking_similarity_threshold: float
 
 
 def load_settings() -> Settings:
@@ -54,6 +64,12 @@ def load_settings() -> Settings:
     embeddings_vertex_location = os.getenv("EMBEDDINGS_VERTEX_LOCATION") or os.getenv("VERTEX_LOCATION") or None
     embeddings_vertex_credentials = os.getenv("EMBEDDINGS_VERTEX_CREDENTIALS") or os.getenv("VERTEX_CREDENTIALS") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or None
 
+    # Chunking settings
+    chunking_strategy_raw = os.getenv("CHUNKING_STRATEGY", "recursive").strip().lower()
+    if chunking_strategy_raw not in ("sliding", "recursive", "semantic"):
+        chunking_strategy_raw = "recursive"
+    chunking_strategy: ChunkingStrategyType = chunking_strategy_raw  # type: ignore[assignment]
+
     return Settings(
         database_url=os.getenv("DATABASE_URL", "postgresql://rag:rag@localhost:56473/rag"),
         chat_backend=chat_backend,
@@ -74,4 +90,8 @@ def load_settings() -> Settings:
         top_k=int(os.getenv("TOP_K", "6")),
         max_context_chars=int(os.getenv("MAX_CONTEXT_CHARS", "24000")),
         allow_anonymous=_bool("ALLOW_ANONYMOUS", False),
+        chunking_strategy=chunking_strategy,
+        chunking_chunk_size=int(os.getenv("CHUNKING_CHUNK_SIZE", "512")),
+        chunking_overlap_chars=int(os.getenv("CHUNKING_OVERLAP_CHARS", "200")),
+        chunking_similarity_threshold=float(os.getenv("CHUNKING_SIMILARITY_THRESHOLD", "0.5")),
     )
