@@ -31,9 +31,16 @@ services:
       CHAT_BASE_URL: ${CHAT_BASE_URL:-}
       CHAT_API_KEY: ${CHAT_API_KEY:-}
       CHAT_MODEL: ${CHAT_MODEL:-}
+      CHAT_BACKEND: ${CHAT_BACKEND:-}
+      CHAT_VERTEX_PROJECT: ${CHAT_VERTEX_PROJECT:-}
+      CHAT_VERTEX_LOCATION: ${CHAT_VERTEX_LOCATION:-}
+      CHAT_VERTEX_CREDENTIALS: ${CHAT_VERTEX_CREDENTIALS:-}
       EMBEDDINGS_BASE_URL: ${EMBEDDINGS_BASE_URL:-}
       EMBEDDINGS_API_KEY: ${EMBEDDINGS_API_KEY:-}
       EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-}
+      EMBEDDINGS_VERTEX_PROJECT: ${EMBEDDINGS_VERTEX_PROJECT:-}
+      EMBEDDINGS_VERTEX_LOCATION: ${EMBEDDINGS_VERTEX_LOCATION:-}
+      EMBEDDINGS_VERTEX_CREDENTIALS: ${EMBEDDINGS_VERTEX_CREDENTIALS:-}
       # From Docker Desktop on macOS:
       LMSTUDIO_BASE_URL: ${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
       LMSTUDIO_API_KEY: ${LMSTUDIO_API_KEY:-}
@@ -45,11 +52,16 @@ services:
       PDF_TEXT_EXTRACTOR: ${PDF_TEXT_EXTRACTOR:-}
       PDF_DUMP_MD: ${PDF_DUMP_MD:-}
       PDF_DUMP_DIR: ${PDF_DUMP_DIR:-}
+      LOG_PROMPTS: ${LOG_PROMPTS:-}
+      LOG_COMPLETIONS: ${LOG_COMPLETIONS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-pretty}
     ports:
       - "${API_PORT:-18080}:8080"
     volumes:
       - ../var/pdfs:/data/pdfs:ro
       - ../var/extracted:/app/var/extracted
+      - ../var/gcp:/app/var/gcp:ro
     depends_on:
       db:
         condition: service_healthy

@@ -94,6 +94,16 @@ uvicorn apps.api.main:app --reload --port 18080
   - API key (optional): `INFERENCE_API_KEY` (preferred) or legacy `LMSTUDIO_API_KEY`
   - Models: `INFERENCE_CHAT_MODEL`, `INFERENCE_EMBEDDING_MODEL` (or legacy `LMSTUDIO_*`)
   - Optional split: set `CHAT_*` and/or `EMBEDDINGS_*` to use different providers for chat vs embeddings
+  - Chat adapter: `CHAT_BACKEND` (`openai_compat` default, or `litellm`)
+    - Gemini via LiteLLM example:
+      - `CHAT_BACKEND=litellm`
+      - `CHAT_MODEL=gemini/<model-name>`
+      - `CHAT_API_KEY=...` (Gemini API key)
+    - Vertex AI chat via LiteLLM example:
+      - `CHAT_BACKEND=litellm`
+      - `CHAT_MODEL=vertex_ai/<model-name>` (e.g. `vertex_ai/gemini-2.0-flash`)
+      - Required: `CHAT_VERTEX_PROJECT`, `CHAT_VERTEX_LOCATION`
+      - Auth: Application Default Credentials (recommended) or `CHAT_VERTEX_CREDENTIALS` path
   - Embeddings adapter: `EMBEDDINGS_BACKEND` (`openai_compat` default, or `litellm`)
   - Vertex AI via LiteLLM:
     - Set `EMBEDDINGS_BACKEND=litellm`
@@ -103,6 +113,9 @@ uvicorn apps.api.main:app --reload --port 18080
 - Ports:
   - API: `API_PORT` (default `18080`)
   - Postgres: `PG_PORT` (default `56473`)
+
+Note: if you run Docker Compose manually with `-f infra/compose.yml`, pass the env file explicitly (our `scripts/*.sh` already do this):
+`docker compose --env-file .env -f infra/compose.yml up -d`
 
 ## API
 
@@ -139,3 +152,13 @@ curl -N \
 - PDF text extraction:
   - `PDF_TEXT_EXTRACTOR=pymupdf4llm` (default) or `PDF_TEXT_EXTRACTOR=pymupdf`
   - To debug what gets ingested, set `PDF_DUMP_MD=1` and re-ingest; the extracted markdown-ish text is written under `var/extracted/*.md` (override with `PDF_DUMP_DIR`).
+
+## Logging
+
+- `LOG_LEVEL` (default `INFO`) — set to `DEBUG` to see more.
+- `LOG_FORMAT` (default `pretty`) — set to `json` for JSON lines.
+- `LOG_PROMPTS=1` — logs the upstream prompt (system+context+messages), truncated.
+- `LOG_COMPLETIONS=1` — logs the upstream completion text (non-streaming), truncated.
+
+Notes:
+- The API never logs credentials (API keys / Authorization headers).

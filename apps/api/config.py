@@ -7,9 +7,13 @@ import os
 @dataclass(frozen=True)
 class Settings:
     database_url: str
+    chat_backend: str
     chat_base_url: str
     chat_api_key: str | None
     chat_model: str
+    chat_vertex_project: str | None
+    chat_vertex_location: str | None
+    chat_vertex_credentials: str | None
     embeddings_backend: str
     embeddings_base_url: str
     embeddings_api_key: str | None
@@ -34,9 +38,13 @@ def load_settings() -> Settings:
     default_base_url = (os.getenv("INFERENCE_BASE_URL") or os.getenv("LMSTUDIO_BASE_URL") or "http://localhost:1234/v1").rstrip("/")
     default_api_key = os.getenv("INFERENCE_API_KEY") or os.getenv("LMSTUDIO_API_KEY") or None
 
+    chat_backend = (os.getenv("CHAT_BACKEND") or "openai_compat").strip().lower()
     chat_base_url = (os.getenv("CHAT_BASE_URL") or default_base_url).rstrip("/")
     chat_api_key = os.getenv("CHAT_API_KEY") or default_api_key
     chat_model = os.getenv("CHAT_MODEL") or os.getenv("INFERENCE_CHAT_MODEL") or os.getenv("LMSTUDIO_CHAT_MODEL") or "local-model"
+    chat_vertex_project = os.getenv("CHAT_VERTEX_PROJECT") or os.getenv("VERTEX_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or None
+    chat_vertex_location = os.getenv("CHAT_VERTEX_LOCATION") or os.getenv("VERTEX_LOCATION") or None
+    chat_vertex_credentials = os.getenv("CHAT_VERTEX_CREDENTIALS") or os.getenv("VERTEX_CREDENTIALS") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or None
 
     embeddings_base_url = (os.getenv("EMBEDDINGS_BASE_URL") or default_base_url).rstrip("/")
     embeddings_api_key = os.getenv("EMBEDDINGS_API_KEY") or default_api_key
@@ -48,9 +56,13 @@ def load_settings() -> Settings:
 
     return Settings(
         database_url=os.getenv("DATABASE_URL", "postgresql://rag:rag@localhost:56473/rag"),
+        chat_backend=chat_backend,
         chat_base_url=chat_base_url,
         chat_api_key=chat_api_key,
         chat_model=chat_model,
+        chat_vertex_project=chat_vertex_project,
+        chat_vertex_location=chat_vertex_location,
+        chat_vertex_credentials=chat_vertex_credentials,
         embeddings_backend=embeddings_backend,
         embeddings_base_url=embeddings_base_url,
         embeddings_api_key=embeddings_api_key,

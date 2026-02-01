@@ -7,27 +7,27 @@ from dotenv import load_dotenv
 
 from ..config import load_settings
 from ..db import Db, execute
+from ..embeddings_client import build_embeddings_client
 from ..schema import ensure_schema, get_schema_info
-from ..lmstudio import LmStudioClient
 
 
 def main() -> None:
     load_dotenv()
     settings = load_settings()
     db = Db(settings.database_url)
-    lm = LmStudioClient(settings.lmstudio_base_url, api_key=settings.lmstudio_api_key)
+    embed_client = build_embeddings_client(settings)
 
     info = get_schema_info(db)
     if info is None:
         # If schema not initialized yet, initialize with the embedding dim probe.
         import asyncio
 
-        dim = asyncio.run(lm.probe_embedding_dim(model=settings.lmstudio_embedding_model))
+        dim = asyncio.run(embed_client.probe_embedding_dim(model=settings.embeddings_model))
         ensure_schema(db, embedding_dim=dim)
 
     api_key = os.getenv("API_KEY") or secrets.token_urlsafe(32)
     tier = os.getenv("TIER") or "pro"
-    citations_enabled = (os.getenv("CITATIONS_ENABLED") or "true").strip().lower() in {"1", "true", "yes", "y", "on"}
+    citations_enabled = (os.getenv("CITATIONS_ENABLED") or "false").strip().lower() in {"1", "true", "yes", "y", "on"}
 
     with db.connect() as conn:
         execute(

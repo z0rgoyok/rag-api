@@ -31,7 +31,10 @@ def retrieve_top_k(db: Db, *, query_embedding: list[float], k: int) -> list[Retr
             from segment_embeddings e
             join segments s on s.id = e.segment_id
             join documents d on d.id = s.document_id
-            order by e.embedding <=> %(q)s::vector
+            -- NOTE: We intentionally wrap the distance expression to avoid an
+            -- ivfflat KNN index plan that can return zero rows for parameterized
+            -- queries on some setups. This keeps correctness for MVP corpora.
+            order by (e.embedding <=> %(q)s::vector) + 0
             limit %(k)s
             """,
             {"q": q, "k": k},
