@@ -56,7 +56,7 @@ async def ingest_pdf(
             }
         )
 
-    insert_segments(db, document_id=doc.id, segments=segment_rows)
+    insert_segments(db, segments=segment_rows)
 
     embeddings = await lm.embeddings(model=embedding_model, input_texts=[c.content for c in chunks], input_type="RETRIEVAL_DOCUMENT")
     embed_rows = []

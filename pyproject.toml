@@ -4,27 +4,25 @@ version = "0.1.0"
 description = "Local, streaming RAG API for a private document corpus"
 requires-python = ">=3.10"
 dependencies = [
-  "fastapi>=0.110",
-  "uvicorn[standard]>=0.27",
+  "fastapi>=0.129.0",
+  "uvicorn[standard]>=0.41.0",
   "httpx>=0.26",
   "litellm>=1.0.0",
   "google-cloud-aiplatform>=1.50.0",
   "psycopg[binary]>=3.1",
   "pydantic>=2.6",
   "python-dotenv>=1.0",
-  "PyMuPDF>=1.26.6",
-  "pymupdf4llm>=0.2.9",
-  "pymupdf-layout>=1.26.6",
+  "docling>=2.61.0",
   # Chunking strategies
   "semchunk>=3.0.0",
-  "chonkie[semantic]>=1.0.0",
+  "chonkie[semantic]>=1.5.6",
 ]
 
 [project.scripts]
 rag-ingest = "apps.ingest.cli:main"
 
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=82.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]

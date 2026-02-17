@@ -11,7 +11,7 @@ Notes:
   - Runs inside Docker (same env as ingest).
   - Output is written under `var/extracted/` by default (repo hygiene).
   - You can also set:
-      PDF_TEXT_EXTRACTOR=pymupdf4llm|pymupdf
+      PDF_TEXT_EXTRACTOR=docling
       PDF_DUMP_MD=1
 EOF
 }

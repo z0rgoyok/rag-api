@@ -6,9 +6,6 @@ import os
 import re
 import unicodedata
 
-import fitz  # PyMuPDF
-
-
 @dataclass(frozen=True)
 class PdfPageText:
     page: int
@@ -17,6 +14,7 @@ class PdfPageText:
 
 _RE_CONTROL = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
 _RE_SAFE_FILENAME = re.compile(r"[^A-Za-z0-9._-]+")
+_PAGE_BREAK = "[[PAGE_BREAK]]"
 
 
 def _repo_root() -> Path:
@@ -24,20 +22,20 @@ def _repo_root() -> Path:
     if env_root:
         return Path(env_root).expanduser().resolve()
 
-    def looks_like_repo_root(p: Path) -> bool:
-        return (p / "apps").is_dir() and (p / "pyproject.toml").is_file()
+    def looks_like_repo_root(root_candidate: Path) -> bool:
+        return (root_candidate / "apps").is_dir() and (root_candidate / "pyproject.toml").is_file()
 
     # Prefer CWD because inside Docker the package may be imported from site-packages,
     # but WORKDIR is still the repo root (`/app`).
     cwd = Path.cwd().resolve()
-    for p in (cwd, *cwd.parents):
-        if looks_like_repo_root(p):
-            return p
+    for candidate in (cwd, *cwd.parents):
+        if looks_like_repo_root(candidate):
+            return candidate
 
     here = Path(__file__).resolve()
-    for p in (here.parent, *here.parents):
-        if looks_like_repo_root(p):
-            return p
+    for candidate in (here.parent, *here.parents):
+        if looks_like_repo_root(candidate):
+            return candidate
 
     return cwd
 
@@ -92,43 +90,31 @@ def _dump_md_if_enabled(*, pdf_path: Path, pages: list[PdfPageText]) -> None:
 
 
 def extract_pdf_text_pages(path: Path) -> list[PdfPageText]:
-    extractor = (os.getenv("PDF_TEXT_EXTRACTOR") or "pymupdf4llm").strip().lower()
-    if extractor in {"pymupdf4llm", "markdown"}:
-        try:
-            import pymupdf4llm  # type: ignore[import-not-found]
+    extractor = (os.getenv("PDF_TEXT_EXTRACTOR") or "docling").strip().lower()
+    if extractor != "docling":
+        raise ValueError(
+            f"Unsupported PDF_TEXT_EXTRACTOR={extractor!r}. "
+            "Only 'docling' is supported."
+        )
 
-            # Optional but recommended: improves page layout / reading order.
-            try:
-                import pymupdf_layout  # type: ignore[import-not-found]
-
-                pymupdf_layout.activate()
-            except Exception:
-                pass
-
-            pages = pymupdf4llm.to_markdown(str(path), page_chunks=True)
-            out: list[PdfPageText] = []
-            for i, p in enumerate(pages or []):
-                # PyMuPDF4LLM returns per-page dicts; the content key may vary by version.
-                text = ""
-                if isinstance(p, dict):
-                    text = (p.get("text") or p.get("markdown") or p.get("content") or "")  # type: ignore[assignment]
-                out.append(PdfPageText(page=i + 1, text=_clean_extracted_text(text)))
-            if out:
-                _dump_md_if_enabled(pdf_path=path, pages=out)
-                return out
-        except Exception:
-            # Fallback to raw PyMuPDF extraction.
-            pass
-
-    doc = fitz.open(str(path))
-    out: list[PdfPageText] = []
     try:
-        for i in range(doc.page_count):
-            page = doc.load_page(i)
-            text = page.get_text("text") or ""
-            out.append(PdfPageText(page=i + 1, text=_clean_extracted_text(text)))
-    finally:
-        doc.close()
+        from docling.document_converter import DocumentConverter  # type: ignore[import-not-found]
+    except ImportError as e:
+        raise RuntimeError(
+            "docling is required for PDF extraction but is not installed. "
+            "Install project dependencies to continue."
+        ) from e
+
+    converter = DocumentConverter()
+    result = converter.convert(str(path))
+    markdown = result.document.export_to_markdown(page_break_placeholder=f"\n\n{_PAGE_BREAK}\n\n")
+    parts = [part for part in markdown.split(_PAGE_BREAK)]
+
+    out: list[PdfPageText] = []
+    for i, part in enumerate(parts):
+        # Keep original page numbering even for blank pages so citations stay accurate.
+        out.append(PdfPageText(page=i + 1, text=_clean_extracted_text(part)))
+
     if out:
         _dump_md_if_enabled(pdf_path=path, pages=out)
     return out

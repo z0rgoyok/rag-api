@@ -48,7 +48,7 @@ def delete_document_by_source_path(db: Db, *, source_path: str) -> None:
         execute(conn, "delete from documents where source_path = %(p)s", {"p": source_path})
 
 
-def insert_segments(db: Db, *, document_id: uuid.UUID, segments: Iterable[dict]) -> None:
+def insert_segments(db: Db, *, segments: Iterable[dict]) -> None:
     with db.connect() as conn:
         execute_many(
             conn,

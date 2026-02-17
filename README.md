@@ -187,7 +187,7 @@ See `apps/agent/README.md` for detailed documentation.
 - The service **enforces** entitlements server-side. Client-provided `citations=true` is ignored unless the API key has `citations_enabled=true`.
 - PDFs are mounted read-only into the API container at `/data/pdfs`. Ingestion reads from `/data/pdfs`.
 - PDF text extraction:
-  - `PDF_TEXT_EXTRACTOR=pymupdf4llm` (default) or `PDF_TEXT_EXTRACTOR=pymupdf`
+  - `PDF_TEXT_EXTRACTOR=docling` (default)
   - To debug what gets ingested, set `PDF_DUMP_MD=1` and re-ingest; the extracted markdown-ish text is written under `var/extracted/*.md` (override with `PDF_DUMP_DIR`).
 
 ## Logging
