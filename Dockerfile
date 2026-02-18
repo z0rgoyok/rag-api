@@ -6,8 +6,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # System deps (kept minimal); leave build tooling out.
+# Includes OCR runtime libs needed by rapidocr/opencv.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    libxcb1 \
+    libgl1 \
+    libglib2.0-0 \
   && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml /app/pyproject.toml

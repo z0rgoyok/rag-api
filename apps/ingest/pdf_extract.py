@@ -56,6 +56,20 @@ def _clean_extracted_text(text: str) -> str:
     return text.strip()
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if not value:
+        return default
+    if value in {"1", "true", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
 def _dump_md_if_enabled(*, pdf_path: Path, pages: list[PdfPageText]) -> None:
     enabled = (os.getenv("PDF_DUMP_MD") or "").strip().lower()
     if enabled not in {"1", "true", "yes", "on"}:
@@ -99,13 +113,34 @@ def extract_pdf_text_pages(path: Path) -> list[PdfPageText]:
 
     try:
         from docling.document_converter import DocumentConverter  # type: ignore[import-not-found]
+        from docling.document_converter import PdfFormatOption  # type: ignore[import-not-found]
+        from docling.datamodel.base_models import InputFormat  # type: ignore[import-not-found]
+        from docling.datamodel.pipeline_options import PdfPipelineOptions  # type: ignore[import-not-found]
     except ImportError as e:
         raise RuntimeError(
             "docling is required for PDF extraction but is not installed. "
             "Install project dependencies to continue."
         ) from e
 
-    converter = DocumentConverter()
+    # Hybrid OCR by default: OCR is enabled, but no force-modes are applied.
+    do_ocr = _env_bool("DOCLING_DO_OCR", True)
+    do_table_structure = _env_bool("DOCLING_DO_TABLE_STRUCTURE", False)
+    force_full_page_ocr = _env_bool("DOCLING_FORCE_FULL_PAGE_OCR", False)
+    force_backend_text = _env_bool("DOCLING_FORCE_BACKEND_TEXT", False)
+
+    pipeline_options = PdfPipelineOptions(
+        do_ocr=do_ocr,
+        do_table_structure=do_table_structure,
+        force_backend_text=force_backend_text,
+    )
+    if getattr(pipeline_options, "ocr_options", None) is not None:
+        pipeline_options.ocr_options.force_full_page_ocr = force_full_page_ocr
+
+    converter = DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
+        }
+    )
     result = converter.convert(str(path))
     markdown = result.document.export_to_markdown(page_break_placeholder=f"\n\n{_PAGE_BREAK}\n\n")
     parts = [part for part in markdown.split(_PAGE_BREAK)]

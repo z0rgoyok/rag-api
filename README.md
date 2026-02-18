@@ -19,31 +19,31 @@ Goals:
 
 ## Docker compose workflow (recommended)
 
-1) Put PDFs into `var/pdfs/`:
+1. Put PDFs into `var/pdfs/`:
 
 ```bash
 cp /path/to/*.pdf var/pdfs/
 ```
 
-2) Start services (Postgres+pgvector + API):
+1. Start services (Postgres+pgvector + API):
 
 ```bash
 ./scripts/up.sh
 ```
 
-3) Ingest PDFs into the vector index:
+1. Ingest PDFs into the vector index:
 
 ```bash
 ./scripts/ingest.sh
 ```
 
-4) Create an API key (prints it to stdout):
+1. Create an API key (prints it to stdout):
 
 ```bash
 ./scripts/create-api-key.sh
 ```
 
-5) Health check:
+1. Health check:
 
 ```bash
 ./scripts/health.sh
@@ -51,14 +51,14 @@ cp /path/to/*.pdf var/pdfs/
 
 ## Local (non-docker) workflow (optional)
 
-1) Start Postgres+pgvector:
+1. Start Postgres+pgvector:
 
 ```bash
 cd infra
 docker compose up -d
 ```
 
-2) Create Python venv + deps:
+1. Create Python venv + deps:
 
 ```bash
 cd ..
@@ -68,19 +68,19 @@ pip install -U pip
 pip install -e .
 ```
 
-3) Configure env:
+1. Configure env:
 
 ```bash
 cp .env.example .env
 ```
 
-4) Drop PDFs into `var/pdfs/` and ingest:
+1. Drop PDFs into `var/pdfs/` and ingest:
 
 ```bash
 rag-ingest ingest --pdf-dir var/pdfs
 ```
 
-5) Run API:
+1. Run API:
 
 ```bash
 uvicorn apps.api.main:app --reload --port 18080
@@ -170,11 +170,10 @@ Response:
 }
 ```
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `query` | string | required | User's question |
-| `max_iterations` | int | 3 | Max agent iterations (1-10) |
-| `citations` | bool | false | Include sources (if entitled) |
+Parameters:
+- `query` (`string`, required): User's question
+- `max_iterations` (`int`, default `3`): Max agent iterations (1-10)
+- `citations` (`bool`, default `false`): Include sources (if entitled)
 
 When to use agentic vs standard RAG:
 - **Standard RAG** (`/v1/chat/completions`): Simple factual questions, low latency required
@@ -188,6 +187,10 @@ See `apps/agent/README.md` for detailed documentation.
 - PDFs are mounted read-only into the API container at `/data/pdfs`. Ingestion reads from `/data/pdfs`.
 - PDF text extraction:
   - `PDF_TEXT_EXTRACTOR=docling` (default)
+  - `DOCLING_DO_OCR=1|0` (default `1`, hybrid OCR: page-level auto-detection)
+  - `DOCLING_DO_TABLE_STRUCTURE=1|0` (default `0`)
+  - `DOCLING_FORCE_FULL_PAGE_OCR=1|0` (default `0`)
+  - `DOCLING_FORCE_BACKEND_TEXT=1|0` (default `0`, no force; let docling pick text/OCR path per page)
   - To debug what gets ingested, set `PDF_DUMP_MD=1` and re-ingest; the extracted markdown-ish text is written under `var/extracted/*.md` (override with `PDF_DUMP_DIR`).
 
 ## Logging

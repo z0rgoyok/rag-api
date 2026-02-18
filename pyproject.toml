@@ -14,7 +14,7 @@ dependencies = [
   "python-dotenv>=1.0",
   "docling>=2.61.0",
   # Chunking strategies
-  "semchunk>=3.0.0",
+  "semchunk>=2.2.0,<3.0.0",
   "chonkie[semantic]>=1.5.6",
 ]
 
