@@ -13,6 +13,7 @@ dependencies = [
   "pydantic>=2.6",
   "python-dotenv>=1.0",
   "docling>=2.61.0",
+  "pypdfium2>=4.30.0,<6.0.0",
   # Chunking strategies
   "semchunk>=2.2.0,<3.0.0",
   "chonkie[semantic]>=1.5.6",

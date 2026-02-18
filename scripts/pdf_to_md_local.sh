@@ -18,6 +18,13 @@ Notes:
       DOCLING_DO_TABLE_STRUCTURE=0
       DOCLING_FORCE_FULL_PAGE_OCR=0
       DOCLING_FORCE_BACKEND_TEXT=0
+      DOCLING_INCLUDE_PICTURES=0
+      DOCLING_DO_PICTURE_CLASSIFICATION=0
+      DOCLING_DO_PICTURE_DESCRIPTION=0
+      DOCLING_OCR_AUTO=1
+      DOCLING_OCR_AUTO_TEXT_LAYER_THRESHOLD=0.95
+      DOCLING_OCR_AUTO_MIN_CHARS=20
+      DOCLING_OCR_AUTO_SAMPLE_PAGES=0
       PDF_DUMP_MD=1
 EOF
 }
@@ -96,6 +103,13 @@ docling_do_ocr="${DOCLING_DO_OCR:-1}"
 docling_do_table_structure="${DOCLING_DO_TABLE_STRUCTURE:-0}"
 docling_force_full_page_ocr="${DOCLING_FORCE_FULL_PAGE_OCR:-0}"
 docling_force_backend_text="${DOCLING_FORCE_BACKEND_TEXT:-0}"
+docling_include_pictures="${DOCLING_INCLUDE_PICTURES:-0}"
+docling_do_picture_classification="${DOCLING_DO_PICTURE_CLASSIFICATION:-0}"
+docling_do_picture_description="${DOCLING_DO_PICTURE_DESCRIPTION:-0}"
+docling_ocr_auto="${DOCLING_OCR_AUTO:-1}"
+docling_ocr_auto_threshold="${DOCLING_OCR_AUTO_TEXT_LAYER_THRESHOLD:-0.95}"
+docling_ocr_auto_min_chars="${DOCLING_OCR_AUTO_MIN_CHARS:-20}"
+docling_ocr_auto_sample_pages="${DOCLING_OCR_AUTO_SAMPLE_PAGES:-0}"
 heartbeat_sec="${PDF_LOG_HEARTBEAT_SEC:-15}"
 if ! [[ "${heartbeat_sec}" =~ ^[0-9]+$ ]] || ((heartbeat_sec < 1)); then
   heartbeat_sec=15
@@ -109,7 +123,8 @@ else
   log "Output: var/extracted/${default_name}"
 fi
 log "Python: ${python_bin}"
-log "Settings: OCR=${docling_do_ocr}, TABLES=${docling_do_table_structure}, FORCE_FULL_PAGE_OCR=${docling_force_full_page_ocr}, FORCE_BACKEND_TEXT=${docling_force_backend_text}"
+log "Settings: OCR=${docling_do_ocr}, TABLES=${docling_do_table_structure}, FORCE_FULL_PAGE_OCR=${docling_force_full_page_ocr}, FORCE_BACKEND_TEXT=${docling_force_backend_text}, INCLUDE_PICTURES=${docling_include_pictures}"
+log "Auto OCR: ENABLED=${docling_ocr_auto}, THRESHOLD=${docling_ocr_auto_threshold}, MIN_CHARS=${docling_ocr_auto_min_chars}, SAMPLE_PAGES=${docling_ocr_auto_sample_pages}"
 log "Heartbeat interval: ${heartbeat_sec}s"
 
 worker_pid=""
@@ -124,6 +139,13 @@ trap 'if [[ -n "${worker_pid}" ]]; then kill "${worker_pid}" 2>/dev/null || true
   DOCLING_DO_TABLE_STRUCTURE="${docling_do_table_structure}" \
   DOCLING_FORCE_FULL_PAGE_OCR="${docling_force_full_page_ocr}" \
   DOCLING_FORCE_BACKEND_TEXT="${docling_force_backend_text}" \
+  DOCLING_INCLUDE_PICTURES="${docling_include_pictures}" \
+  DOCLING_DO_PICTURE_CLASSIFICATION="${docling_do_picture_classification}" \
+  DOCLING_DO_PICTURE_DESCRIPTION="${docling_do_picture_description}" \
+  DOCLING_OCR_AUTO="${docling_ocr_auto}" \
+  DOCLING_OCR_AUTO_TEXT_LAYER_THRESHOLD="${docling_ocr_auto_threshold}" \
+  DOCLING_OCR_AUTO_MIN_CHARS="${docling_ocr_auto_min_chars}" \
+  DOCLING_OCR_AUTO_SAMPLE_PAGES="${docling_ocr_auto_sample_pages}" \
   RAG_REPO_ROOT="${repo}" \
   INPUT_PDF_PATH="${pdf_abs}" \
   "${python_bin}" -u - <<'PY'
