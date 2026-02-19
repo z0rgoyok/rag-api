@@ -23,7 +23,17 @@ def main() -> None:
         import asyncio
 
         dim = asyncio.run(embed_client.probe_embedding_dim(model=settings.embeddings_model))
-        ensure_schema(db, embedding_dim=dim)
+        ensure_schema(
+            db,
+            embedding_dim=dim,
+            embedding_model=settings.embeddings_model,
+        )
+    else:
+        ensure_schema(
+            db,
+            embedding_dim=info.embedding_dim,
+            embedding_model=settings.embeddings_model,
+        )
 
     api_key = os.getenv("API_KEY") or secrets.token_urlsafe(32)
     tier = os.getenv("TIER") or "pro"

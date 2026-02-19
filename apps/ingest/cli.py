@@ -606,9 +606,17 @@ def main() -> None:
                         ]
                     )
                 ) from e
-            ensure_schema(db, embedding_dim=dim)
+            ensure_schema(
+                db,
+                embedding_dim=dim,
+                embedding_model=settings.embeddings_model,
+            )
         else:
-            ensure_schema(db, embedding_dim=info.embedding_dim)
+            ensure_schema(
+                db,
+                embedding_dim=info.embedding_dim,
+                embedding_model=settings.embeddings_model,
+            )
 
     chunker: ChunkingStrategy | None = None
     if input_mode == "pdf":

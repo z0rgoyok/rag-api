@@ -11,15 +11,28 @@ from .db import Db, execute, fetch_one
 @dataclass(frozen=True)
 class SchemaInfo:
     embedding_dim: int
+    embedding_model: str | None
 
 
 def get_schema_info(db: Db) -> Optional[SchemaInfo]:
     try:
         with db.connect() as conn:
+            row = fetch_one(conn, "select embedding_dim, embedding_model from rag_meta limit 1")
+            if not row:
+                return None
+            return SchemaInfo(
+                embedding_dim=int(row["embedding_dim"]),
+                embedding_model=row.get("embedding_model"),
+            )
+    except psycopg.errors.UndefinedColumn:
+        with db.connect() as conn:
             row = fetch_one(conn, "select embedding_dim from rag_meta limit 1")
             if not row:
                 return None
-            return SchemaInfo(embedding_dim=int(row["embedding_dim"]))
+            return SchemaInfo(
+                embedding_dim=int(row["embedding_dim"]),
+                embedding_model=None,
+            )
     except psycopg.errors.UndefinedTable:
         return None
 
@@ -125,7 +138,7 @@ def ensure_ingest_task_schema(db: Db) -> None:
         _ensure_ingest_task_tables(conn)
 
 
-def ensure_schema(db: Db, *, embedding_dim: int) -> SchemaInfo:
+def ensure_schema(db: Db, *, embedding_dim: int, embedding_model: str) -> SchemaInfo:
     with db.connect() as conn:
         execute(conn, "create extension if not exists vector;")
 
@@ -134,20 +147,48 @@ def ensure_schema(db: Db, *, embedding_dim: int) -> SchemaInfo:
             """
             create table if not exists rag_meta (
               embedding_dim integer not null,
+              embedding_model text,
               created_at timestamptz not null default now()
             );
             """,
         )
-        row = fetch_one(conn, "select embedding_dim from rag_meta limit 1;")
+        execute(
+            conn,
+            """
+            alter table if exists rag_meta
+            add column if not exists embedding_model text;
+            """,
+        )
+        row = fetch_one(conn, "select embedding_dim, embedding_model from rag_meta limit 1;")
         effective_embedding_dim: int
+        effective_embedding_model: str
         if row:
             existing = int(row["embedding_dim"])
             if existing != embedding_dim:
                 raise RuntimeError(f"Embedding dimension mismatch: db={existing} env/probe={embedding_dim}")
             effective_embedding_dim = existing
+            existing_model = row.get("embedding_model")
+            if existing_model is None:
+                execute(
+                    conn,
+                    "update rag_meta set embedding_model = %(m)s where embedding_model is null;",
+                    {"m": embedding_model},
+                )
+                effective_embedding_model = embedding_model
+            elif str(existing_model) != embedding_model:
+                raise RuntimeError(
+                    f"Embedding model mismatch: db={existing_model} env={embedding_model}"
+                )
+            else:
+                effective_embedding_model = str(existing_model)
         else:
-            execute(conn, "insert into rag_meta (embedding_dim) values (%(d)s);", {"d": embedding_dim})
+            execute(
+                conn,
+                "insert into rag_meta (embedding_dim, embedding_model) values (%(d)s, %(m)s);",
+                {"d": embedding_dim, "m": embedding_model},
+            )
             effective_embedding_dim = embedding_dim
+            effective_embedding_model = embedding_model
 
         execute(
             conn,
@@ -211,4 +252,7 @@ def ensure_schema(db: Db, *, embedding_dim: int) -> SchemaInfo:
 
         _ensure_ingest_task_tables(conn)
 
-        return SchemaInfo(embedding_dim=effective_embedding_dim)
+        return SchemaInfo(
+            embedding_dim=effective_embedding_dim,
+            embedding_model=effective_embedding_model,
+        )

@@ -154,6 +154,7 @@ uvicorn apps.api.main:app --reload --port 18080
 - Retrieval:
   - `TOP_K` controls how many chunks are returned to context.
   - `RETRIEVAL_USE_FTS=1|0` toggles lexical FTS blending with vector search (`0` = pure vector).
+  - With `RETRIEVAL_USE_FTS=0`, returned `score` is cosine similarity (`1 - distance`).
 - Ingest chunking strategy:
   - `CHUNKING_STRATEGY=recursive|sliding|semantic|docling_hierarchical|docling_hybrid`
   - `semantic` is the recommended default for PDF books.
@@ -161,6 +162,7 @@ uvicorn apps.api.main:app --reload --port 18080
   - Ingest is task-based (`ingest_tasks` + `ingest_task_items` in DB).
   - Interrupted runs are resumable via `--task-id`.
   - `--on-error fail|skip` controls per-file failure behavior for each start/resume.
+  - Schema metadata validates both embedding dimension and `EMBEDDINGS_MODEL` to avoid mixed vector spaces.
   - Run mode is explicit via `--mode`:
     - `pdf_full` = PDF -> chunks -> embeddings -> DB
     - `pdf_extract` = PDF -> `*.chunks.jsonl` only

@@ -106,7 +106,8 @@ def _hybrid_search_rows(
             vector_hits as (
               select
                 s.id as segment_id,
-                row_number() over (order by (e.embedding <=> %(q)s::vector) + 0) as vec_rank
+                row_number() over (order by (e.embedding <=> %(q)s::vector) + 0) as vec_rank,
+                (1 - (e.embedding <=> %(q)s::vector))::float8 as vec_score
               from segment_embeddings e
               join segments s on s.id = e.segment_id
               order by (e.embedding <=> %(q)s::vector) + 0
@@ -148,6 +149,7 @@ def _hybrid_search_rows(
               select
                 coalesce(v.segment_id, f.segment_id) as segment_id,
                 v.vec_rank,
+                v.vec_score,
                 f.fts_rank
               from vector_hits v
               full join fts_hits f on f.segment_id = v.segment_id
@@ -155,8 +157,12 @@ def _hybrid_search_rows(
             ranked as (
               select
                 m.segment_id,
-                coalesce(1.0 / ((select rrf_k from cfg) + m.vec_rank), 0.0)
-                + coalesce(1.0 / ((select rrf_k from cfg) + m.fts_rank), 0.0) as hybrid_score
+                case
+                  when %(use_fts)s then
+                    coalesce(1.0 / ((select rrf_k from cfg) + m.vec_rank), 0.0)
+                    + coalesce(1.0 / ((select rrf_k from cfg) + m.fts_rank), 0.0)
+                  else coalesce(m.vec_score, -1.0)
+                end as score
               from merged m
             )
             select
@@ -164,11 +170,11 @@ def _hybrid_search_rows(
               d.source_path,
               d.title,
               s.page,
-              r.hybrid_score as score
+              r.score as score
             from ranked r
             join segments s on s.id = r.segment_id
             join documents d on d.id = s.document_id
-            order by r.hybrid_score desc, s.id
+            order by r.score desc, s.id
             limit %(k)s
             """,
             {

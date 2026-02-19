@@ -70,7 +70,11 @@ async def _startup() -> None:
     info = get_schema_info(db)
     if info is None:
         if settings.embedding_dim is not None:
-            ensure_schema(db, embedding_dim=settings.embedding_dim)
+            ensure_schema(
+                db,
+                embedding_dim=settings.embedding_dim,
+                embedding_model=settings.embeddings_model,
+            )
             return
         # Best effort: if LM Studio isn't up yet, keep API running; schema can be
         # initialized by running ingestion once (it will probe dim).
@@ -78,7 +82,13 @@ async def _startup() -> None:
             dim = await embed_client.probe_embedding_dim(model=settings.embeddings_model)
         except Exception:
             return
-        ensure_schema(db, embedding_dim=dim)
+        ensure_schema(db, embedding_dim=dim, embedding_model=settings.embeddings_model)
+        return
+    ensure_schema(
+        db,
+        embedding_dim=info.embedding_dim,
+        embedding_model=settings.embeddings_model,
+    )
 
 
 @app.post("/v1/chat/completions")
