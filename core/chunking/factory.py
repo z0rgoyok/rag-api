@@ -6,7 +6,13 @@ from typing import Literal
 from .protocol import ChunkingStrategy
 
 
-ChunkingStrategyType = Literal["sliding", "recursive", "semantic"]
+ChunkingStrategyType = Literal[
+    "sliding",
+    "recursive",
+    "semantic",
+    "docling_hierarchical",
+    "docling_hybrid",
+]
 
 
 @dataclass(frozen=True)

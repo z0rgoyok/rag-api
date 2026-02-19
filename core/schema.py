@@ -24,6 +24,107 @@ def get_schema_info(db: Db) -> Optional[SchemaInfo]:
         return None
 
 
+def _ensure_ingest_task_tables(conn: psycopg.Connection) -> None:
+    execute(
+        conn,
+        """
+        create table if not exists ingest_tasks (
+          id uuid primary key,
+          pdf_dir text not null,
+          input_mode text not null default 'pdf' check (input_mode in ('pdf', 'chunks')),
+          chunking_strategy text not null,
+          error_strategy text not null,
+          pipeline_mode text not null default 'full' check (pipeline_mode in ('full', 'extract_only')),
+          extract_output_dir text,
+          force boolean not null default false,
+          status text not null check (status in ('pending', 'running', 'completed', 'failed', 'interrupted')),
+          created_at timestamptz not null default now(),
+          started_at timestamptz,
+          finished_at timestamptz,
+          heartbeat_at timestamptz,
+          last_error text
+        );
+        """,
+    )
+    # Lightweight migration for previously created table shape.
+    execute(
+        conn,
+        """
+        alter table if exists ingest_tasks
+        add column if not exists input_mode text not null default 'pdf';
+        """,
+    )
+    execute(
+        conn,
+        """
+        do $$
+        begin
+          if not exists (
+            select 1
+            from pg_constraint
+            where conname = 'ingest_tasks_input_mode_chk'
+          ) then
+            alter table ingest_tasks
+            add constraint ingest_tasks_input_mode_chk
+            check (input_mode in ('pdf', 'chunks')) not valid;
+          end if;
+        end
+        $$;
+        """,
+    )
+    execute(
+        conn,
+        """
+        alter table if exists ingest_tasks
+        validate constraint ingest_tasks_input_mode_chk;
+        """,
+    )
+    execute(
+        conn,
+        """
+        alter table if exists ingest_tasks
+        add column if not exists pipeline_mode text not null default 'full';
+        """,
+    )
+    execute(
+        conn,
+        """
+        alter table if exists ingest_tasks
+        add column if not exists extract_output_dir text;
+        """,
+    )
+    execute(conn, "create index if not exists ingest_tasks_status_idx on ingest_tasks(status);")
+    execute(conn, "create index if not exists ingest_tasks_created_at_idx on ingest_tasks(created_at);")
+
+    execute(
+        conn,
+        """
+        create table if not exists ingest_task_items (
+          id uuid primary key,
+          task_id uuid not null references ingest_tasks(id) on delete cascade,
+          ordinal integer not null,
+          source_path text not null,
+          status text not null check (status in ('pending', 'running', 'completed', 'failed', 'skipped')),
+          attempt integer not null default 0,
+          created_at timestamptz not null default now(),
+          started_at timestamptz,
+          finished_at timestamptz,
+          heartbeat_at timestamptz,
+          last_error text,
+          unique(task_id, ordinal),
+          unique(task_id, source_path)
+        );
+        """,
+    )
+    execute(conn, "create index if not exists ingest_task_items_task_status_idx on ingest_task_items(task_id, status);")
+    execute(conn, "create index if not exists ingest_task_items_task_ordinal_idx on ingest_task_items(task_id, ordinal);")
+
+
+def ensure_ingest_task_schema(db: Db) -> None:
+    with db.connect() as conn:
+        _ensure_ingest_task_tables(conn)
+
+
 def ensure_schema(db: Db, *, embedding_dim: int) -> SchemaInfo:
     with db.connect() as conn:
         execute(conn, "create extension if not exists vector;")
@@ -38,13 +139,15 @@ def ensure_schema(db: Db, *, embedding_dim: int) -> SchemaInfo:
             """,
         )
         row = fetch_one(conn, "select embedding_dim from rag_meta limit 1;")
+        effective_embedding_dim: int
         if row:
             existing = int(row["embedding_dim"])
             if existing != embedding_dim:
                 raise RuntimeError(f"Embedding dimension mismatch: db={existing} env/probe={embedding_dim}")
-            return SchemaInfo(embedding_dim=existing)
-
-        execute(conn, "insert into rag_meta (embedding_dim) values (%(d)s);", {"d": embedding_dim})
+            effective_embedding_dim = existing
+        else:
+            execute(conn, "insert into rag_meta (embedding_dim) values (%(d)s);", {"d": embedding_dim})
+            effective_embedding_dim = embedding_dim
 
         execute(
             conn,
@@ -88,7 +191,7 @@ def ensure_schema(db: Db, *, embedding_dim: int) -> SchemaInfo:
             f"""
             create table if not exists segment_embeddings (
               segment_id uuid primary key references segments(id) on delete cascade,
-              embedding vector({embedding_dim}) not null
+              embedding vector({effective_embedding_dim}) not null
             );
             """,
         )
@@ -106,4 +209,6 @@ def ensure_schema(db: Db, *, embedding_dim: int) -> SchemaInfo:
             """,
         )
 
-        return SchemaInfo(embedding_dim=embedding_dim)
+        _ensure_ingest_task_tables(conn)
+
+        return SchemaInfo(embedding_dim=effective_embedding_dim)

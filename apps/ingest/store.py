@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Sequence
 import uuid
 
+from core.chunking import Chunk
 from core.db import Db, execute, execute_many, fetch_one
 from core.pgvector import vector_literal
 
@@ -19,62 +20,134 @@ def sha256_file(path: Path) -> str:
 
 
 @dataclass(frozen=True)
-class StoredDocument:
-    id: uuid.UUID
-    up_to_date: bool
+class DocumentSyncState:
+    document_id: uuid.UUID
+    sha256: str
+    segment_count: int
+    embedding_count: int
 
 
-def upsert_document(db: Db, *, source_path: str, title: str, sha256: str) -> StoredDocument:
+def get_document_sync_state(db: Db, *, source_path: str) -> DocumentSyncState | None:
     with db.connect() as conn:
-        row = fetch_one(conn, "select id, sha256 from documents where source_path = %(p)s", {"p": source_path})
-        if row and row["sha256"] == sha256:
-            return StoredDocument(id=row["id"], up_to_date=True)
+        row = fetch_one(
+            conn,
+            """
+            select
+              d.id as document_id,
+              d.sha256 as sha256,
+              coalesce((select count(*) from segments s where s.document_id = d.id), 0) as segment_count,
+              coalesce(
+                (
+                  select count(*)
+                  from segment_embeddings se
+                  join segments s on s.id = se.segment_id
+                  where s.document_id = d.id
+                ),
+                0
+              ) as embedding_count
+            from documents d
+            where d.source_path = %(source_path)s
+            """,
+            {"source_path": source_path},
+        )
+        if not row:
+            return None
+        return DocumentSyncState(
+            document_id=row["document_id"],
+            sha256=str(row["sha256"]),
+            segment_count=int(row["segment_count"]),
+            embedding_count=int(row["embedding_count"]),
+        )
 
-        if row and row["sha256"] != sha256:
-            # Replace by deleting and re-inserting (keeps MVP simple).
+
+def is_document_up_to_date(db: Db, *, source_path: str, sha256: str) -> bool:
+    state = get_document_sync_state(db, source_path=source_path)
+    if state is None:
+        return False
+    if state.sha256 != sha256:
+        return False
+    # Require non-empty successful index to avoid accepting legacy partial rows.
+    return state.segment_count > 0 and state.segment_count == state.embedding_count
+
+
+def replace_document_content(
+    db: Db,
+    *,
+    source_path: str,
+    title: str,
+    sha256: str,
+    chunks: Sequence[Chunk],
+    embeddings: Sequence[Sequence[float]],
+) -> uuid.UUID:
+    if not chunks:
+        raise ValueError("Cannot persist a document without chunks.")
+    if len(chunks) != len(embeddings):
+        raise ValueError("Chunks/embeddings count mismatch.")
+
+    with db.connect_tx() as conn:
+        row = fetch_one(
+            conn,
+            "select id from documents where source_path = %(source_path)s",
+            {"source_path": source_path},
+        )
+        if row:
             execute(conn, "delete from documents where id = %(id)s", {"id": row["id"]})
 
-        doc_id = uuid.uuid4()
+        document_id = uuid.uuid4()
         execute(
             conn,
-            "insert into documents (id, source_path, title, sha256) values (%(id)s, %(p)s, %(t)s, %(s)s)",
-            {"id": doc_id, "p": source_path, "t": title, "s": sha256},
+            """
+            insert into documents (id, source_path, title, sha256)
+            values (%(id)s, %(source_path)s, %(title)s, %(sha256)s)
+            """,
+            {
+                "id": document_id,
+                "source_path": source_path,
+                "title": title,
+                "sha256": sha256,
+            },
         )
-        return StoredDocument(id=doc_id, up_to_date=False)
 
+        segment_ids: list[uuid.UUID] = []
+        segment_rows: list[dict] = []
+        for chunk in chunks:
+            segment_id = uuid.uuid4()
+            segment_ids.append(segment_id)
+            segment_rows.append(
+                {
+                    "id": segment_id,
+                    "document_id": document_id,
+                    "ordinal": chunk.ordinal,
+                    "page": chunk.page,
+                    "content": chunk.content,
+                }
+            )
 
-def delete_document_by_source_path(db: Db, *, source_path: str) -> None:
-    with db.connect() as conn:
-        execute(conn, "delete from documents where source_path = %(p)s", {"p": source_path})
-
-
-def insert_segments(db: Db, *, segments: Iterable[dict]) -> None:
-    with db.connect() as conn:
         execute_many(
             conn,
             """
             insert into segments (id, document_id, ordinal, page, content)
             values (%(id)s, %(document_id)s, %(ordinal)s, %(page)s, %(content)s)
             """,
-            segments,
+            segment_rows,
         )
 
+        embedding_rows: list[dict] = []
+        for segment_id, embedding in zip(segment_ids, embeddings):
+            embedding_rows.append(
+                {
+                    "segment_id": segment_id,
+                    "embedding": vector_literal(embedding),
+                }
+            )
 
-def insert_embeddings(db: Db, *, rows: Iterable[dict]) -> None:
-    adapted = []
-    for r in rows:
-        adapted.append(
-            {
-                "segment_id": r["segment_id"],
-                "embedding": vector_literal(r["embedding"]),
-            }
-        )
-    with db.connect() as conn:
         execute_many(
             conn,
             """
             insert into segment_embeddings (segment_id, embedding)
             values (%(segment_id)s, %(embedding)s::vector)
             """,
-            adapted,
+            embedding_rows,
         )
+
+        return document_id

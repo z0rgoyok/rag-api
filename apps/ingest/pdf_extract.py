@@ -4,12 +4,24 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 import re
+from typing import Any, Protocol
 import unicodedata
 
 @dataclass(frozen=True)
 class PdfPageText:
     page: int
     text: str
+
+
+@dataclass(frozen=True)
+class PdfChunkText:
+    page: int | None
+    ordinal: int
+    text: str
+
+
+class _DoclingConverter(Protocol):
+    def convert(self, source: str) -> Any: ...
 
 
 _RE_CONTROL = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
@@ -193,14 +205,7 @@ def _dump_md_if_enabled(*, pdf_path: Path, pages: list[PdfPageText]) -> None:
     out_path.write_text("".join(parts).strip() + "\n", encoding="utf-8")
 
 
-def extract_pdf_text_pages(path: Path) -> list[PdfPageText]:
-    extractor = (os.getenv("PDF_TEXT_EXTRACTOR") or "docling").strip().lower()
-    if extractor != "docling":
-        raise ValueError(
-            f"Unsupported PDF_TEXT_EXTRACTOR={extractor!r}. "
-            "Only 'docling' is supported."
-        )
-
+def _build_docling_converter(path: Path) -> tuple[_DoclingConverter, set[object], bool]:
     try:
         from docling.document_converter import DocumentConverter  # type: ignore[import-not-found]
         from docling.document_converter import PdfFormatOption  # type: ignore[import-not-found]
@@ -261,6 +266,33 @@ def extract_pdf_text_pages(path: Path) -> list[PdfPageText]:
             InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
         }
     )
+    return converter, export_labels, include_pictures
+
+
+def _extract_first_chunk_page(raw_chunk: object) -> int | None:
+    meta = getattr(raw_chunk, "meta", None)
+    doc_items = getattr(meta, "doc_items", None) or []
+    pages: set[int] = set()
+    for item in doc_items:
+        provenance_items = getattr(item, "prov", None) or []
+        for provenance in provenance_items:
+            page_no = getattr(provenance, "page_no", None)
+            if isinstance(page_no, int):
+                pages.add(page_no)
+    if not pages:
+        return None
+    return min(pages)
+
+
+def extract_pdf_text_pages(path: Path) -> list[PdfPageText]:
+    extractor = (os.getenv("PDF_TEXT_EXTRACTOR") or "docling").strip().lower()
+    if extractor != "docling":
+        raise ValueError(
+            f"Unsupported PDF_TEXT_EXTRACTOR={extractor!r}. "
+            "Only 'docling' is supported."
+        )
+
+    converter, export_labels, include_pictures = _build_docling_converter(path)
     result = converter.convert(str(path))
     markdown = result.document.export_to_markdown(
         page_break_placeholder=f"\n\n{_PAGE_BREAK}\n\n",
@@ -276,4 +308,52 @@ def extract_pdf_text_pages(path: Path) -> list[PdfPageText]:
 
     if out:
         _dump_md_if_enabled(pdf_path=path, pages=out)
+    return out
+
+
+def extract_pdf_docling_chunks(path: Path, *, strategy: str) -> list[PdfChunkText]:
+    extractor = (os.getenv("PDF_TEXT_EXTRACTOR") or "docling").strip().lower()
+    if extractor != "docling":
+        raise ValueError(
+            f"Unsupported PDF_TEXT_EXTRACTOR={extractor!r}. "
+            "Only 'docling' is supported."
+        )
+
+    if strategy == "docling_hierarchical":
+        try:
+            from docling_core.transforms.chunker.hierarchical_chunker import HierarchicalChunker  # type: ignore[import-not-found]
+        except ImportError as e:
+            raise RuntimeError(
+                "docling-core hierarchical chunker is required but not installed. "
+                "Install project dependencies to continue."
+            ) from e
+        chunker = HierarchicalChunker()
+    elif strategy == "docling_hybrid":
+        try:
+            from docling_core.transforms.chunker.hybrid_chunker import HybridChunker  # type: ignore[import-not-found]
+        except ImportError as e:
+            raise RuntimeError(
+                "docling-core hybrid chunker is required but not installed. "
+                "Install project dependencies to continue."
+            ) from e
+        chunker = HybridChunker()
+    else:
+        raise ValueError(f"Unsupported docling chunk strategy: {strategy!r}")
+
+    converter, _, _ = _build_docling_converter(path)
+    result = converter.convert(str(path))
+
+    out: list[PdfChunkText] = []
+    for raw_chunk in chunker.chunk(result.document):
+        text = _clean_extracted_text(getattr(raw_chunk, "text", ""))
+        if not text:
+            continue
+        out.append(
+            PdfChunkText(
+                page=_extract_first_chunk_page(raw_chunk),
+                ordinal=len(out),
+                text=text,
+            )
+        )
+
     return out

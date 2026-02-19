@@ -66,12 +66,14 @@ class Agent:
             embed_client=embed_client,
             embeddings_model=settings.embeddings_model,
             top_k=self.config.top_k,
+            use_fts=settings.retrieval_use_fts,
         )
         self.refine_tool = RefineAndSearchTool(
             db=db,
             embed_client=embed_client,
             embeddings_model=settings.embeddings_model,
             top_k=self.config.top_k,
+            use_fts=settings.retrieval_use_fts,
         )
         self.final_answer_tool = FinalAnswerTool()
 
@@ -171,7 +173,8 @@ class Agent:
         # Build result
         return self._build_result(state)
 
-    def _format_tool_result(self, result: Any) -> str:
+    @staticmethod
+    def _format_tool_result(result: Any) -> str:
         """Format tool result for the LLM."""
         if not result.success:
             return json.dumps({"error": result.error})
@@ -229,7 +232,8 @@ class Agent:
             iterations=state.iterations,
         )
 
-    def _build_fallback_result(self, state: AgentState, error: str) -> AgentResult:
+    @staticmethod
+    def _build_fallback_result(state: AgentState, error: str) -> AgentResult:
         """Build a fallback result when the agent fails."""
         return AgentResult(
             answer=f"I encountered an error while processing your question: {error}",

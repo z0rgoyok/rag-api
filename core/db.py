@@ -13,6 +13,9 @@ class Db:
     def connect(self) -> psycopg.Connection:
         return psycopg.connect(self.url, autocommit=True)
 
+    def connect_tx(self) -> psycopg.Connection:
+        return psycopg.connect(self.url, autocommit=False)
+
 
 def fetch_one(conn: psycopg.Connection, query: str, params: Optional[dict[str, Any]] = None) -> Optional[dict[str, Any]]:
     with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:

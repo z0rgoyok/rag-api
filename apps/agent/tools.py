@@ -12,6 +12,176 @@ from core.db import fetch_all
 
 from .protocol import AgentState, SearchResult, ToolName, ToolResult
 
+_HYBRID_CANDIDATE_MULTIPLIER = 8
+_HYBRID_MIN_CANDIDATES = 50
+_HYBRID_RRF_K = 60
+
+
+async def _embed_and_search(
+    *,
+    db: Db,
+    embed_client: EmbeddingsClient,
+    embeddings_model: str,
+    query_text: str,
+    top_k: int,
+    use_fts: bool,
+) -> list[SearchResult]:
+    embeddings = await embed_client.embeddings(
+        model=embeddings_model,
+        input_texts=[query_text],
+        input_type="RETRIEVAL_QUERY",
+    )
+    query_vec = embeddings[0]
+    rows = _hybrid_search_rows(
+        db=db,
+        query_text=query_text,
+        query_embedding=query_vec,
+        k=top_k,
+        use_fts=use_fts,
+    )
+    return [
+        SearchResult(
+            content=r["content"],
+            source=r["source_path"],
+            page=r["page"],
+            score=float(r["score"]),
+        )
+        for r in rows
+    ]
+
+
+async def _execute_query_search(
+    *,
+    tool_name: ToolName,
+    query_text: str,
+    state: AgentState,
+    db: Db,
+    embed_client: EmbeddingsClient,
+    embeddings_model: str,
+    top_k: int,
+    use_fts: bool,
+) -> ToolResult:
+    try:
+        results = await _embed_and_search(
+            db=db,
+            embed_client=embed_client,
+            embeddings_model=embeddings_model,
+            query_text=query_text,
+            top_k=top_k,
+            use_fts=use_fts,
+        )
+        state.add_search(query_text, results)
+        return ToolResult(
+            tool_name=tool_name,
+            success=True,
+            data=results,
+        )
+    except Exception as e:
+        return ToolResult(
+            tool_name=tool_name,
+            success=False,
+            data=[],
+            error=str(e),
+        )
+
+
+def _hybrid_search_rows(
+    *,
+    db: Db,
+    query_text: str,
+    query_embedding: list[float],
+    k: int,
+    use_fts: bool,
+) -> list[dict[str, Any]]:
+    with db.connect() as conn:
+        q = vector_literal(query_embedding)
+        return fetch_all(
+            conn,
+            """
+            with cfg as (
+              select
+                greatest(%(k)s * %(cand_mult)s, %(cand_min)s)::integer as cand_k,
+                %(rrf_k)s::float8 as rrf_k
+            ),
+            vector_hits as (
+              select
+                s.id as segment_id,
+                row_number() over (order by (e.embedding <=> %(q)s::vector) + 0) as vec_rank
+              from segment_embeddings e
+              join segments s on s.id = e.segment_id
+              order by (e.embedding <=> %(q)s::vector) + 0
+              limit (select cand_k from cfg)
+            ),
+            fts_terms as (
+              select term
+              from regexp_split_to_table(lower(%(query_text)s), E'[^[:alnum:]а-яё]+') as term
+              where %(use_fts)s
+                and length(term) >= 4
+                and term not in (
+                  'это', 'этот', 'эта', 'эти',
+                  'такое', 'какой', 'какая', 'какие',
+                  'where', 'what', 'which', 'how', 'why', 'when',
+                  'this', 'that', 'is', 'are', 'the'
+                )
+            ),
+            fts_input as (
+              select
+                case
+                  when count(*) = 0 then ''::tsquery
+                  else to_tsquery('simple', string_agg(term, ' | '))
+                end as tsq
+              from fts_terms
+            ),
+            fts_hits as (
+              select
+                s.id as segment_id,
+                row_number() over (
+                  order by ts_rank_cd(s.tsv, f.tsq) desc, s.id
+                ) as fts_rank
+              from segments s
+              cross join fts_input f
+              where f.tsq <> ''::tsquery and s.tsv @@ f.tsq
+              order by ts_rank_cd(s.tsv, f.tsq) desc, s.id
+              limit (select cand_k from cfg)
+            ),
+            merged as (
+              select
+                coalesce(v.segment_id, f.segment_id) as segment_id,
+                v.vec_rank,
+                f.fts_rank
+              from vector_hits v
+              full join fts_hits f on f.segment_id = v.segment_id
+            ),
+            ranked as (
+              select
+                m.segment_id,
+                coalesce(1.0 / ((select rrf_k from cfg) + m.vec_rank), 0.0)
+                + coalesce(1.0 / ((select rrf_k from cfg) + m.fts_rank), 0.0) as hybrid_score
+              from merged m
+            )
+            select
+              s.content,
+              d.source_path,
+              d.title,
+              s.page,
+              r.hybrid_score as score
+            from ranked r
+            join segments s on s.id = r.segment_id
+            join documents d on d.id = s.document_id
+            order by r.hybrid_score desc, s.id
+            limit %(k)s
+            """,
+            {
+                "q": q,
+                "k": k,
+                "query_text": query_text,
+                "use_fts": use_fts,
+                "cand_mult": _HYBRID_CANDIDATE_MULTIPLIER,
+                "cand_min": _HYBRID_MIN_CANDIDATES,
+                "rrf_k": _HYBRID_RRF_K,
+            },
+        )
+
 
 @dataclass
 class SearchTool:
@@ -21,6 +191,7 @@ class SearchTool:
     embed_client: EmbeddingsClient
     embeddings_model: str
     top_k: int = 6
+    use_fts: bool = True
 
     @property
     def name(self) -> ToolName:
@@ -43,64 +214,16 @@ class SearchTool:
                 error="Query cannot be empty",
             )
 
-        try:
-            # Embed the query
-            embeddings = await self.embed_client.embeddings(
-                model=self.embeddings_model,
-                input_texts=[query],
-                input_type="RETRIEVAL_QUERY",
-            )
-            query_vec = embeddings[0]
-
-            # Search
-            results = self._search(query_vec)
-
-            # Update state
-            state.add_search(query, results)
-
-            return ToolResult(
-                tool_name=self.name,
-                success=True,
-                data=results,
-            )
-        except Exception as e:
-            return ToolResult(
-                tool_name=self.name,
-                success=False,
-                data=[],
-                error=str(e),
-            )
-
-    def _search(self, query_embedding: list[float]) -> list[SearchResult]:
-        with self.db.connect() as conn:
-            q = vector_literal(query_embedding)
-            rows = fetch_all(
-                conn,
-                """
-                select
-                  s.content,
-                  d.source_path,
-                  d.title,
-                  s.page,
-                  (1 - (e.embedding <=> %(q)s::vector)) as score
-                from segment_embeddings e
-                join segments s on s.id = e.segment_id
-                join documents d on d.id = s.document_id
-                order by (e.embedding <=> %(q)s::vector) + 0
-                limit %(k)s
-                """,
-                {"q": q, "k": self.top_k},
-            )
-            return [
-                SearchResult(
-                    content=r["content"],
-                    source=r["source_path"],
-                    page=r["page"],
-                    score=float(r["score"]),
-                )
-                for r in rows
-            ]
-
+        return await _execute_query_search(
+            tool_name=self.name,
+            query_text=query,
+            state=state,
+            db=self.db,
+            embed_client=self.embed_client,
+            embeddings_model=self.embeddings_model,
+            top_k=self.top_k,
+            use_fts=self.use_fts,
+        )
 
 @dataclass
 class RefineAndSearchTool:
@@ -110,6 +233,7 @@ class RefineAndSearchTool:
     embed_client: EmbeddingsClient
     embeddings_model: str
     top_k: int = 6
+    use_fts: bool = True
 
     @property
     def name(self) -> ToolName:
@@ -135,59 +259,16 @@ class RefineAndSearchTool:
 
         state.add_reasoning(f"Refining search with: {refined_query}")
 
-        try:
-            embeddings = await self.embed_client.embeddings(
-                model=self.embeddings_model,
-                input_texts=[refined_query],
-                input_type="RETRIEVAL_QUERY",
-            )
-            query_vec = embeddings[0]
-            results = self._search(query_vec)
-            state.add_search(refined_query, results)
-
-            return ToolResult(
-                tool_name=self.name,
-                success=True,
-                data=results,
-            )
-        except Exception as e:
-            return ToolResult(
-                tool_name=self.name,
-                success=False,
-                data=[],
-                error=str(e),
-            )
-
-    def _search(self, query_embedding: list[float]) -> list[SearchResult]:
-        with self.db.connect() as conn:
-            q = vector_literal(query_embedding)
-            rows = fetch_all(
-                conn,
-                """
-                select
-                  s.content,
-                  d.source_path,
-                  d.title,
-                  s.page,
-                  (1 - (e.embedding <=> %(q)s::vector)) as score
-                from segment_embeddings e
-                join segments s on s.id = e.segment_id
-                join documents d on d.id = s.document_id
-                order by (e.embedding <=> %(q)s::vector) + 0
-                limit %(k)s
-                """,
-                {"q": q, "k": self.top_k},
-            )
-            return [
-                SearchResult(
-                    content=r["content"],
-                    source=r["source_path"],
-                    page=r["page"],
-                    score=float(r["score"]),
-                )
-                for r in rows
-            ]
-
+        return await _execute_query_search(
+            tool_name=self.name,
+            query_text=refined_query,
+            state=state,
+            db=self.db,
+            embed_client=self.embed_client,
+            embeddings_model=self.embeddings_model,
+            top_k=self.top_k,
+            use_fts=self.use_fts,
+        )
 
 @dataclass
 class FinalAnswerTool:

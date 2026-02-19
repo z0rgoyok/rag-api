@@ -6,7 +6,13 @@ import os
 
 from typing import Literal
 
-ChunkingStrategyType = Literal["sliding", "recursive", "semantic"]
+ChunkingStrategyType = Literal[
+    "sliding",
+    "recursive",
+    "semantic",
+    "docling_hierarchical",
+    "docling_hybrid",
+]
 RerankingStrategyType = Literal["none", "cross_encoder", "cohere"]
 
 
@@ -30,6 +36,7 @@ class Settings:
     embedding_dim: int | None
     top_k: int
     max_context_chars: int
+    retrieval_use_fts: bool
     allow_anonymous: bool
     # Chunking settings
     chunking_strategy: ChunkingStrategyType
@@ -66,9 +73,15 @@ def load_settings() -> Settings:
     embeddings_vertex_credentials = os.getenv("EMBEDDINGS_VERTEX_CREDENTIALS") or os.getenv("VERTEX_CREDENTIALS") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or None
 
     # Chunking settings
-    chunking_strategy_raw = os.getenv("CHUNKING_STRATEGY", "recursive").strip().lower()
-    if chunking_strategy_raw not in ("sliding", "recursive", "semantic"):
-        chunking_strategy_raw = "recursive"
+    chunking_strategy_raw = os.getenv("CHUNKING_STRATEGY", "semantic").strip().lower()
+    if chunking_strategy_raw not in (
+        "sliding",
+        "recursive",
+        "semantic",
+        "docling_hierarchical",
+        "docling_hybrid",
+    ):
+        chunking_strategy_raw = "semantic"
     chunking_strategy: ChunkingStrategyType = chunking_strategy_raw  # type: ignore[assignment]
 
     return Settings(
@@ -90,6 +103,7 @@ def load_settings() -> Settings:
         embedding_dim=int(os.environ["EMBEDDING_DIM"]) if os.getenv("EMBEDDING_DIM") else None,
         top_k=int(os.getenv("TOP_K", "6")),
         max_context_chars=int(os.getenv("MAX_CONTEXT_CHARS", "24000")),
+        retrieval_use_fts=_bool("RETRIEVAL_USE_FTS", True),
         allow_anonymous=_bool("ALLOW_ANONYMOUS", False),
         chunking_strategy=chunking_strategy,
         chunking_chunk_size=int(os.getenv("CHUNKING_CHUNK_SIZE", "512")),

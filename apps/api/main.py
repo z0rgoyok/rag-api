@@ -101,7 +101,13 @@ async def chat_completions(
     sources: list[dict[str, Any]] = []
     if req.rag and user_text.strip():
         qvec = (await embed_client.embeddings(model=settings.embeddings_model, input_texts=[user_text], input_type="RETRIEVAL_QUERY"))[0]
-        segments = retrieve_top_k(db, query_embedding=qvec, k=settings.top_k)
+        segments = retrieve_top_k(
+            db,
+            query_text=user_text,
+            query_embedding=qvec,
+            k=settings.top_k,
+            use_fts=settings.retrieval_use_fts,
+        )
         log.info(
             "request_id=%s rag_retrieve k=%s hits=%s include_sources=%s",
             request_id,

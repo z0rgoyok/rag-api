@@ -37,6 +37,25 @@ cp /path/to/*.pdf var/pdfs/
 ./scripts/ingest.sh
 ```
 
+Default behavior is fail-fast (`--on-error fail`).
+To skip broken files and continue:
+
+```bash
+INGEST_ON_ERROR=skip ./scripts/ingest.sh
+```
+
+Extract-only mode (no embeddings, writes chunks to files):
+
+```bash
+INGEST_MODE=pdf_extract ./scripts/ingest.sh
+```
+
+Ingest from already extracted chunk files:
+
+```bash
+INGEST_MODE=chunks_full ./scripts/ingest.sh
+```
+
 1. Create an API key (prints it to stdout):
 
 ```bash
@@ -77,7 +96,25 @@ cp .env.example .env
 1. Drop PDFs into `var/pdfs/` and ingest:
 
 ```bash
-rag-ingest ingest --pdf-dir var/pdfs
+rag-ingest ingest --mode pdf_full --pdf-dir var/pdfs --on-error fail
+```
+
+If run is interrupted or fails, resume it by task id:
+
+```bash
+rag-ingest ingest --mode resume --task-id <task_uuid> --on-error skip
+```
+
+Extract-only to JSONL chunks:
+
+```bash
+rag-ingest ingest --mode pdf_extract --pdf-dir var/pdfs --extract-output-dir var/extracted --on-error skip
+```
+
+Index from pre-extracted chunks:
+
+```bash
+rag-ingest ingest --mode chunks_full --chunks-dir var/extracted --on-error skip
 ```
 
 1. Run API:
@@ -114,6 +151,24 @@ uvicorn apps.api.main:app --reload --port 18080
 - Ports:
   - API: `API_PORT` (default `18080`)
   - Postgres: `PG_PORT` (default `56473`)
+- Retrieval:
+  - `TOP_K` controls how many chunks are returned to context.
+  - `RETRIEVAL_USE_FTS=1|0` toggles lexical FTS blending with vector search (`0` = pure vector).
+- Ingest chunking strategy:
+  - `CHUNKING_STRATEGY=recursive|sliding|semantic|docling_hierarchical|docling_hybrid`
+  - `semantic` is the recommended default for PDF books.
+- Ingest reliability:
+  - Ingest is task-based (`ingest_tasks` + `ingest_task_items` in DB).
+  - Interrupted runs are resumable via `--task-id`.
+  - `--on-error fail|skip` controls per-file failure behavior for each start/resume.
+  - Run mode is explicit via `--mode`:
+    - `pdf_full` = PDF -> chunks -> embeddings -> DB
+    - `pdf_extract` = PDF -> `*.chunks.jsonl` only
+    - `chunks_full` = `*.chunks.jsonl` -> embeddings -> DB
+    - `resume` = continue existing task by `--task-id`
+- Chunk sanitization:
+  - Base text cleanup runs before chunking in extraction.
+  - Chunk sanitizer runs after chunking (before embeddings/DB insert): `CHUNK_SANITIZE_ENABLED`, `CHUNK_SANITIZE_MIN_WORDS`, `CHUNK_SANITIZE_DEDUP`.
 
 Note: if you run Docker Compose manually with `-f infra/compose.yml`, pass the env file explicitly (our `scripts/*.sh` already do this):
 `docker compose --env-file .env -f infra/compose.yml up -d`
