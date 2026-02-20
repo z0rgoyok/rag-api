@@ -48,6 +48,10 @@ reranker = build_reranker(
         lmstudio_batch_size=settings.reranking_batch_size,
         cross_encoder_model=settings.reranking_model,
         cross_encoder_batch_size=settings.reranking_batch_size,
+        http_base_url=settings.reranking_base_url,
+        http_api_key=settings.reranking_api_key,
+        http_model=settings.reranking_model,
+        http_batch_size=settings.reranking_batch_size,
     )
 )
 

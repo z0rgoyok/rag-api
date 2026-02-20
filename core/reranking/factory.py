@@ -5,7 +5,7 @@ from typing import Literal
 
 from .protocol import Reranker
 
-RerankingStrategyType = Literal["none", "lmstudio", "cross_encoder", "cohere"]
+RerankingStrategyType = Literal["none", "lmstudio", "cross_encoder", "cohere", "http"]
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,12 @@ class RerankingSettings:
     cohere_api_key: str | None = None
     cohere_model: str = "rerank-english-v3.0"
     cohere_base_url: str = "https://api.cohere.ai"
+
+    # generic external HTTP reranker settings
+    http_base_url: str = "http://host.docker.internal:18123"
+    http_api_key: str | None = None
+    http_model: str = "BAAI/bge-reranker-v2-m3"
+    http_batch_size: int = 64
 
 
 def build_reranker(settings: RerankingSettings) -> Reranker:
@@ -79,6 +85,16 @@ def build_reranker(settings: RerankingSettings) -> Reranker:
             api_key=settings.cohere_api_key,
             model=settings.cohere_model,
             base_url=settings.cohere_base_url,
+        )
+
+    if settings.strategy == "http":
+        from .http import HttpReranker
+
+        return HttpReranker(
+            base_url=settings.http_base_url,
+            api_key=settings.http_api_key,
+            model=settings.http_model,
+            batch_size=settings.http_batch_size,
         )
 
     raise ValueError(f"Unknown reranking strategy: {settings.strategy}")

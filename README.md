@@ -144,6 +144,32 @@ rag-ingest ingest --mode chunks_full --chunks-dir var/extracted --on-error skip
 uvicorn apps.api.main:app --reload --port 18080
 ```
 
+## Host reranker service (Docker API + host inference)
+
+Use this when API runs in Docker, but reranking should run on host (e.g. Apple Silicon MPS):
+
+1. Start host reranker:
+
+```bash
+./scripts/rerank-host.sh
+```
+
+1. Set environment:
+
+```bash
+RERANKING_STRATEGY=http
+RERANKING_BASE_URL=http://host.docker.internal:18123
+RERANKING_MODEL=BAAI/bge-reranker-v2-m3
+```
+
+Optional auth:
+- Set `RERANK_HOST_API_KEY` for host service.
+- Set `RERANKING_API_KEY` with the same value for API container.
+
+Notes:
+- In this mode, API container does not need `sentence-transformers`/`torch`.
+- Heavy rerank model + inference stay on host process.
+
 ## Configuration
 
 - Inference provider (OpenAI-compatible): LM Studio *or* external providers (OpenAI, etc.)
@@ -181,13 +207,15 @@ uvicorn apps.api.main:app --reload --port 18080
   - `RETRIEVAL_USE_FTS=1|0` toggles hybrid ranking (vector similarity + lexical score on retrieved candidates).
   - With `RETRIEVAL_USE_FTS=0`, returned `score` is pure vector similarity from Qdrant.
   - Reranking:
-    - `RERANKING_STRATEGY=none|lmstudio|cross_encoder|cohere`
+    - `RERANKING_STRATEGY=none|lmstudio|cross_encoder|cohere|http`
     - `RERANKING_RETRIEVAL_K` controls how many candidates are pulled before rerank.
     - `RERANKING_MODEL` sets reranker model:
       - `cross_encoder`: HF model id, e.g. `BAAI/bge-reranker-v2-m3`.
       - `lmstudio`: model id exposed by LM Studio `/v1/models`, e.g. `text-embedding-bge-reranker-v2-m3`.
-    - `RERANKING_BASE_URL` / `RERANKING_API_KEY` optionally override provider endpoint for `lmstudio` rerank strategy.
-      - For local LM Studio, `RERANKING_API_KEY` is usually empty.
+      - `http`: model id forwarded to host reranker service.
+    - `RERANKING_BASE_URL` / `RERANKING_API_KEY` optionally override provider endpoint/auth.
+      - `lmstudio`: LM Studio base URL and optional API key.
+      - `http`: host reranker base URL and optional bearer token.
     - `RERANKING_BATCH_SIZE` controls reranker batch size.
 - Ingest chunking strategy:
   - `CHUNKING_STRATEGY=recursive|sliding|semantic|docling_hierarchical|docling_hybrid`
@@ -281,8 +309,7 @@ See `apps/agent/README.md` for detailed documentation.
 ## Notes
 
 - The service **enforces** entitlements server-side. Client-provided `citations=true` is ignored unless the API key has `citations_enabled=true`.
-- PDFs are mounted read-only into the API container at `/data/pdfs`.
-- Docker image intentionally excludes `docling` extraction dependencies.
+- Docker API image intentionally excludes host-only ingestion/rerank dependencies (`docling`, `semchunk`, `chonkie`, `sentence-transformers`/`torch`).
 - Extract flow is host/local only (`INGEST_MODE=extract`).
 - Ingest-from-chunks flow is host/local (`INGEST_MODE=ingest`).
 - PDF text extraction:

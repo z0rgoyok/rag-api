@@ -13,7 +13,7 @@ ChunkingStrategyType = Literal[
     "docling_hierarchical",
     "docling_hybrid",
 ]
-RerankingStrategyType = Literal["none", "lmstudio", "cross_encoder", "cohere"]
+RerankingStrategyType = Literal["none", "lmstudio", "cross_encoder", "cohere", "http"]
 
 
 @dataclass(frozen=True)
@@ -82,7 +82,7 @@ def load_settings() -> Settings:
     embeddings_vertex_credentials = os.getenv("EMBEDDINGS_VERTEX_CREDENTIALS") or os.getenv("VERTEX_CREDENTIALS") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or None
 
     reranking_strategy_raw = (os.getenv("RERANKING_STRATEGY") or "none").strip().lower()
-    if reranking_strategy_raw not in ("none", "lmstudio", "cross_encoder", "cohere"):
+    if reranking_strategy_raw not in ("none", "lmstudio", "cross_encoder", "cohere", "http"):
         reranking_strategy_raw = "none"
     reranking_strategy: RerankingStrategyType = reranking_strategy_raw  # type: ignore[assignment]
     reranking_base_url = (os.getenv("RERANKING_BASE_URL") or default_base_url).rstrip("/")
