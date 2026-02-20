@@ -56,6 +56,20 @@ Ingest from already extracted chunk files:
 INGEST_MODE=chunks_full ./scripts/ingest.sh
 ```
 
+Resume an interrupted task:
+
+```bash
+INGEST_MODE=resume INGEST_TASK_ID=<task_uuid> INGEST_ON_ERROR=skip ./scripts/ingest.sh
+```
+
+`scripts/ingest.sh` env options:
+- `INGEST_MODE=pdf_full|pdf_extract|chunks_full|resume` (default `pdf_full`)
+- `INGEST_ON_ERROR=fail|skip` (default `fail`)
+- `INGEST_TASK_ID=<task_uuid>` (required for `INGEST_MODE=resume`)
+- `INGEST_CHUNKS_DIR=/app/var/extracted` (used by `INGEST_MODE=chunks_full`)
+- `INGEST_EXTRACT_OUTPUT_DIR=var/extracted` (used by `INGEST_MODE=pdf_extract`)
+- `INGEST_FORCE=1` (adds `--force`)
+
 1. Create an API key (prints it to stdout):
 
 ```bash
