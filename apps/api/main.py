@@ -85,6 +85,17 @@ def _sanitize_error_text(text: str) -> str:
     out = _RE_API_KEY.sub(r"\1REDACTED", out)
     return out
 
+
+def _format_messages_for_log(messages: list[dict[str, Any]]) -> str:
+    blocks: list[str] = []
+    for idx, msg in enumerate(messages, start=1):
+        role = msg.get("role") if isinstance(msg, dict) else "unknown"
+        content = msg.get("content") if isinstance(msg, dict) else "<non-dict>"
+        if not isinstance(content, str):
+            content = "<non-str>"
+        blocks.append(f"--- message {idx} role={role} ---\n{content}")
+    return "\n\n".join(blocks)
+
 app = FastAPI(title="rag-api", version="0.1.0")
 auth_dep = auth_dependency(db, settings.allow_anonymous)
 
@@ -224,7 +235,15 @@ async def chat_completions(
         payload["max_tokens"] = req.max_tokens
 
     if (os.getenv("LOG_PROMPTS") or "").strip().lower() in {"1", "true", "yes", "on"}:
-        def _truncate(s: str, n: int = 800) -> str:
+        raw_prompt_log_max = (os.getenv("LOG_PROMPT_MAX_CHARS") or "800").strip()
+        try:
+            prompt_log_max_chars = int(raw_prompt_log_max)
+        except ValueError:
+            prompt_log_max_chars = 800
+
+        def _truncate(s: str, n: int = prompt_log_max_chars) -> str:
+            if n <= 0:
+                return s
             return s if len(s) <= n else s[: n - 3] + "..."
 
         safe_msgs: list[dict[str, Any]] = []
@@ -245,8 +264,7 @@ async def chat_completions(
             payload.get("stream"),
             len(sources) if include_sources else 0,
         )
-        pretty_msgs = json.dumps(safe_msgs, ensure_ascii=False, indent=2)
-        log.info("request_id=%s upstream_chat_messages\n%s", request_id, pretty_msgs)
+        log.info("request_id=%s upstream_chat_messages\n%s", request_id, _format_messages_for_log(safe_msgs))
 
     if not req.stream:
         # Non-streaming passthrough (still adds sources if allowed).

@@ -153,6 +153,7 @@ def build_context(segments: list[RetrievedSegment], *, max_chars: int, include_s
     sources: list[dict[str, Any]] = []
     parts: list[str] = []
     remaining = max_chars
+    chunk_no = 0
 
     for seg in segments:
         snippet = seg.content.strip()
@@ -163,11 +164,12 @@ def build_context(segments: list[RetrievedSegment], *, max_chars: int, include_s
         if not snippet:
             break
 
+        chunk_no += 1
         if include_sources:
             label = seg.title
             if seg.page is not None:
                 label = f"{label} (page {seg.page})"
-            parts.append(f"[SOURCE] {label}\n{snippet}\n")
+            parts.append(f"[CHUNK {chunk_no}]\n[SOURCE] {label}\n{snippet}")
             sources.append(
                 {
                     "title": seg.title,
@@ -177,13 +179,13 @@ def build_context(segments: list[RetrievedSegment], *, max_chars: int, include_s
                 }
             )
         else:
-            parts.append(f"{snippet}\n")
+            parts.append(f"[CHUNK {chunk_no}]\n{snippet}")
 
         remaining -= len(snippet)
         if remaining <= 0:
             break
 
-    return "\n".join(parts).strip(), sources
+    return "\n\n".join(parts).strip(), sources
 
 
 async def rerank_segments(
