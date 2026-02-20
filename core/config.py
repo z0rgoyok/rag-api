@@ -40,6 +40,8 @@ class Settings:
     top_k: int
     max_context_chars: int
     retrieval_use_fts: bool
+    strict_model_startup: bool
+    lmstudio_auto_pull: bool
     allow_anonymous: bool
     # Chunking settings
     chunking_strategy: ChunkingStrategyType
@@ -110,6 +112,8 @@ def load_settings() -> Settings:
         top_k=int(os.getenv("TOP_K", "6")),
         max_context_chars=int(os.getenv("MAX_CONTEXT_CHARS", "24000")),
         retrieval_use_fts=_bool("RETRIEVAL_USE_FTS", True),
+        strict_model_startup=_bool("STRICT_MODEL_STARTUP", False),
+        lmstudio_auto_pull=_bool("LMSTUDIO_AUTO_PULL", False),
         allow_anonymous=_bool("ALLOW_ANONYMOUS", False),
         chunking_strategy=chunking_strategy,
         chunking_chunk_size=int(os.getenv("CHUNKING_CHUNK_SIZE", "512")),

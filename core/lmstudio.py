@@ -54,3 +54,13 @@ class LmStudioClient:
         if not vectors or not vectors[0]:
             raise RuntimeError("LM Studio embeddings returned empty vector")
         return len(vectors[0])
+
+    async def models(self) -> dict[str, Any]:
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            headers=self._headers(),
+            timeout=httpx.Timeout(30.0, connect=5.0),
+        ) as client:
+            r = await client.get("/models")
+            r.raise_for_status()
+            return r.json()
