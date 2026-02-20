@@ -122,6 +122,33 @@ def _definition_pattern_boost(*, query_terms: list[str], content: str) -> float:
     return min(boost, 0.090)
 
 
+def _is_tiny_fragment(content: str) -> bool:
+    text = (content or "").strip()
+    if not text:
+        return True
+    chars = len(text)
+    words = len(_WORD_RE.findall(text))
+    return chars < 40 or words < 6
+
+
+def _short_chunk_penalty(content: str) -> float:
+    text = (content or "").strip()
+    if not text:
+        return -0.05
+
+    chars = len(text)
+    words = len(_WORD_RE.findall(text))
+
+    # Language-agnostic guardrail against tiny OCR fragments taking top slots.
+    if chars < 40 or words < 6:
+        return -0.035
+    if chars < 80 or words < 10:
+        return -0.020
+    if chars < 140 or words < 16:
+        return -0.008
+    return 0.0
+
+
 def retrieve_top_k(
     qdrant: Qdrant,
     *,
@@ -137,6 +164,9 @@ def retrieve_top_k(
         k=k,
         use_fts=use_fts,
     )
+    filtered_rows = [row for row in rows if not _is_tiny_fragment(row.content)]
+    if filtered_rows:
+        rows = filtered_rows
     return [
         RetrievedSegment(
             content=row.content,
@@ -209,13 +239,14 @@ async def rerank_segments(
             continue
         seg = segments[item.index]
         boost = _definition_pattern_boost(query_terms=query_terms, content=seg.content)
+        penalty = _short_chunk_penalty(seg.content)
         out.append(
             RetrievedSegment(
                 content=seg.content,
                 source_path=seg.source_path,
                 title=seg.title,
                 page=seg.page,
-                score=item.score + boost,
+                score=item.score + boost + penalty,
             )
         )
     out.sort(key=lambda s: s.score, reverse=True)

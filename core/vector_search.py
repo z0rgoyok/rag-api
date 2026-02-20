@@ -57,10 +57,23 @@ def _lexical_score(content_lc: str, terms: list[str]) -> float:
     if not terms:
         return 0.0
     score = 0.0
+    matched_terms = 0
     for term in terms:
         hits = content_lc.count(term)
         if hits > 0:
+            matched_terms += 1
             score += 1.0 + min(4.0, float(hits - 1) * 0.25)
+    if matched_terms == 0:
+        return 0.0
+
+    # Favor chunks that cover more query terms; partial one-term matches for
+    # multi-term queries should not dominate the lexical side.
+    coverage = float(matched_terms) / float(len(terms))
+    score *= 0.35 + 0.65 * coverage
+    if len(terms) >= 2 and matched_terms < len(terms):
+        score *= 0.35
+    if len(terms) >= 2 and " ".join(terms) in content_lc:
+        score += 2.0
     return score
 
 
