@@ -164,7 +164,11 @@ async def chat_completions(
         messages = [
             {
                 "role": "system",
-                "content": "You answer using the provided CONTEXT. If the user asks about the corpus, use it. If context is insufficient, say so.\n\nCONTEXT:\n"
+                "content": (
+                    "Answer directly in the user's language using CONTEXT when relevant. "
+                    "Do not mention retrieval process, context, sources, or 'provided text' unless the user explicitly asks about evidence/source provenance. "
+                    "If information is insufficient, say that directly.\n\nCONTEXT:\n"
+                )
                 + context_text,
             },
             *messages,
