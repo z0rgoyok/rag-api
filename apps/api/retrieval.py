@@ -52,10 +52,13 @@ def _select_focus_terms(*, query_text: str, segments: list["RetrievedSegment"], 
     if not corpus:
         return []
     n = max(1, len(corpus))
+    top_text = (segments[0].content or "").lower()[:1500]
 
     scored: list[tuple[float, str]] = []
     for token in tokens:
         rx = re.compile(_term_rx(token))
+        if top_text and not rx.search(top_text):
+            continue
         df = sum(1 for text in corpus if rx.search(text))
         if df == 0:
             continue
@@ -196,7 +199,8 @@ async def rerank_segments(
     # Get scores for all candidates first; apply lightweight pattern boost
     # before the final top-k cut.
     ranked = await reranker.rerank(query_text, [s.content for s in segments], top_k=None)
-    query_terms = _select_focus_terms(query_text=query_text, segments=segments)
+    # Keep only the single most informative term to keep the boost lightweight.
+    query_terms = _select_focus_terms(query_text=query_text, segments=segments, max_terms=1)
     out: list[RetrievedSegment] = []
     for item in ranked:
         if item.index < 0 or item.index >= len(segments):

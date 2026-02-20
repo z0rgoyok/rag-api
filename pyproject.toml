@@ -22,6 +22,8 @@ dependencies = [
   # Chunking strategies
   "semchunk>=2.2.0,<3.0.0",
   "chonkie[semantic]>=1.5.6",
+  # Python reranking strategy
+  "sentence-transformers>=5.2.0",
 ]
 
 [project.scripts]

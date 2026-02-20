@@ -181,12 +181,14 @@ uvicorn apps.api.main:app --reload --port 18080
   - `RETRIEVAL_USE_FTS=1|0` toggles hybrid ranking (vector similarity + lexical score on retrieved candidates).
   - With `RETRIEVAL_USE_FTS=0`, returned `score` is pure vector similarity from Qdrant.
   - Reranking:
-    - `RERANKING_STRATEGY=none|lmstudio|cross_encoder|cohere` (API path currently uses `none`/`lmstudio`)
+    - `RERANKING_STRATEGY=none|lmstudio|cross_encoder|cohere`
     - `RERANKING_RETRIEVAL_K` controls how many candidates are pulled before rerank.
-    - `RERANKING_MODEL` sets reranker model (for LM Studio: `text-embedding-bge-reranker-v2-m3`).
-    - `RERANKING_BASE_URL` / `RERANKING_API_KEY` optionally override provider endpoint for rerank.
+    - `RERANKING_MODEL` sets reranker model:
+      - `cross_encoder`: HF model id, e.g. `BAAI/bge-reranker-v2-m3`.
+      - `lmstudio`: model id exposed by LM Studio `/v1/models`, e.g. `text-embedding-bge-reranker-v2-m3`.
+    - `RERANKING_BASE_URL` / `RERANKING_API_KEY` optionally override provider endpoint for `lmstudio` rerank strategy.
       - For local LM Studio, `RERANKING_API_KEY` is usually empty.
-    - `RERANKING_BATCH_SIZE` controls reranker embeddings batch size.
+    - `RERANKING_BATCH_SIZE` controls reranker batch size.
 - Ingest chunking strategy:
   - `CHUNKING_STRATEGY=recursive|sliding|semantic|docling_hierarchical|docling_hybrid`
   - `semantic` is the recommended default for PDF books.

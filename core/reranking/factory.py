@@ -25,7 +25,7 @@ class RerankingSettings:
     lmstudio_batch_size: int = 16
 
     # cross_encoder settings
-    cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    cross_encoder_model: str = "BAAI/bge-reranker-v2-m3"
     cross_encoder_batch_size: int = 32
 
     # cohere settings

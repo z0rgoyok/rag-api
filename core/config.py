@@ -87,7 +87,12 @@ def load_settings() -> Settings:
     reranking_strategy: RerankingStrategyType = reranking_strategy_raw  # type: ignore[assignment]
     reranking_base_url = (os.getenv("RERANKING_BASE_URL") or default_base_url).rstrip("/")
     reranking_api_key = os.getenv("RERANKING_API_KEY") or None
-    reranking_model = (os.getenv("RERANKING_MODEL") or "text-embedding-bge-reranker-v2-m3").strip()
+    reranking_model_default = (
+        "text-embedding-bge-reranker-v2-m3"
+        if reranking_strategy == "lmstudio"
+        else "BAAI/bge-reranker-v2-m3"
+    )
+    reranking_model = (os.getenv("RERANKING_MODEL") or reranking_model_default).strip()
 
     # Chunking settings
     chunking_strategy_raw = os.getenv("CHUNKING_STRATEGY", "semantic").strip().lower()

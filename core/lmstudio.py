@@ -25,6 +25,9 @@ class LmStudioClient:
             r = await client.post("/embeddings", json={"model": model, "input": input_texts})
             r.raise_for_status()
             data = r.json()
+            actual_model = str(data.get("model") or "").strip()
+            if actual_model and actual_model != model:
+                raise RuntimeError(f"Embeddings model mismatch: requested={model} actual={actual_model}")
             return [item["embedding"] for item in data["data"]]
 
     async def chat_completions(self, payload: dict[str, Any], *, timeout_s: float = 120.0) -> dict[str, Any]:

@@ -15,3 +15,4 @@ docling-core>=2.65.0
 pypdfium2>=4.30.0,<6.0.0
 semchunk>=2.2.0,<3.0.0
 chonkie[semantic]>=1.5.6
+sentence-transformers>=5.2.0
