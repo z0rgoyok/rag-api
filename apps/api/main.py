@@ -96,6 +96,13 @@ def _format_messages_for_log(messages: list[dict[str, Any]]) -> str:
         blocks.append(f"--- message {idx} role={role} ---\n{content}")
     return "\n\n".join(blocks)
 
+
+def _single_line(text: str, *, max_chars: int = 500) -> str:
+    one_line = " ".join(text.split())
+    if len(one_line) <= max_chars:
+        return one_line
+    return one_line[: max_chars - 3] + "..."
+
 app = FastAPI(title="rag-api", version="0.1.0")
 auth_dep = auth_dependency(db, settings.allow_anonymous)
 
@@ -178,6 +185,14 @@ async def chat_completions(
         retrieval_k = settings.top_k
         if settings.reranking_strategy != "none":
             retrieval_k = max(settings.top_k, settings.reranking_retrieval_k)
+        log.info(
+            "request_id=%s qdrant_query text=%s k=%s use_fts=%s embedding_dim=%s",
+            request_id,
+            _single_line(user_text),
+            retrieval_k,
+            settings.retrieval_use_fts,
+            len(qvec),
+        )
         segments = retrieve_top_k(
             qdrant,
             query_text=user_text,
