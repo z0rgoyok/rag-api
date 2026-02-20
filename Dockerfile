@@ -15,10 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml /app/pyproject.toml
+COPY requirements-docker.txt /app/requirements-docker.txt
 COPY core /app/core
 COPY apps /app/apps
 
-RUN pip install --no-cache-dir -U pip && pip install --no-cache-dir .
+RUN pip install --no-cache-dir -U pip \
+  && pip install --no-cache-dir -r /app/requirements-docker.txt \
+  && pip install --no-cache-dir --no-deps -e /app
 
 EXPOSE 8080
 

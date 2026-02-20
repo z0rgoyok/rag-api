@@ -1,39 +1,34 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from dataclasses import dataclass, field
 
-import psycopg
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
 
 
-@dataclass(frozen=True)
+@dataclass
 class Db:
     url: str
+    _engine: Engine = field(init=False, repr=False)
+    _session_factory: sessionmaker[Session] = field(init=False, repr=False)
 
-    def connect(self) -> psycopg.Connection:
-        return psycopg.connect(self.url, autocommit=True)
+    def __post_init__(self) -> None:
+        effective_url = self.url
+        if effective_url.startswith("postgresql://"):
+            effective_url = effective_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        self._engine = create_engine(effective_url, future=True, pool_pre_ping=True)
+        self._session_factory = sessionmaker(
+            bind=self._engine,
+            autoflush=False,
+            autocommit=False,
+            expire_on_commit=False,
+            future=True,
+        )
 
-    def connect_tx(self) -> psycopg.Connection:
-        return psycopg.connect(self.url, autocommit=False)
+    @property
+    def engine(self) -> Engine:
+        return self._engine
 
-
-def fetch_one(conn: psycopg.Connection, query: str, params: Optional[dict[str, Any]] = None) -> Optional[dict[str, Any]]:
-    with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-        cur.execute(query, params or {})
-        return cur.fetchone()
-
-
-def fetch_all(conn: psycopg.Connection, query: str, params: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
-    with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-        cur.execute(query, params or {})
-        return list(cur.fetchall())
-
-
-def execute(conn: psycopg.Connection, query: str, params: Optional[dict[str, Any]] = None) -> None:
-    with conn.cursor() as cur:
-        cur.execute(query, params or {})
-
-
-def execute_many(conn: psycopg.Connection, query: str, param_rows: Iterable[dict[str, Any]]) -> None:
-    with conn.cursor() as cur:
-        cur.executemany(query, list(param_rows))
+    def session(self) -> Session:
+        return self._session_factory()

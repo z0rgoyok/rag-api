@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from core.config import load_settings
 from core.db import Db
 from core.embeddings_client import build_embeddings_client
+from core.qdrant import Qdrant
 from core.schema import ensure_schema, get_schema_info
 
 from .auth import Principal, auth_dependency
@@ -29,6 +30,11 @@ load_dotenv()
 configure_logging()
 settings = load_settings()
 db = Db(settings.database_url)
+qdrant = Qdrant(
+    url=settings.qdrant_url,
+    api_key=settings.qdrant_api_key,
+    collection=settings.qdrant_collection,
+)
 chat_client = build_chat_client(settings)
 embed_client = build_embeddings_client(settings)
 
@@ -72,6 +78,7 @@ async def _startup() -> None:
         if settings.embedding_dim is not None:
             ensure_schema(
                 db,
+                qdrant,
                 embedding_dim=settings.embedding_dim,
                 embedding_model=settings.embeddings_model,
             )
@@ -82,10 +89,11 @@ async def _startup() -> None:
             dim = await embed_client.probe_embedding_dim(model=settings.embeddings_model)
         except Exception:
             return
-        ensure_schema(db, embedding_dim=dim, embedding_model=settings.embeddings_model)
+        ensure_schema(db, qdrant, embedding_dim=dim, embedding_model=settings.embeddings_model)
         return
     ensure_schema(
         db,
+        qdrant,
         embedding_dim=info.embedding_dim,
         embedding_model=settings.embeddings_model,
     )
@@ -112,7 +120,7 @@ async def chat_completions(
     if req.rag and user_text.strip():
         qvec = (await embed_client.embeddings(model=settings.embeddings_model, input_texts=[user_text], input_type="RETRIEVAL_QUERY"))[0]
         segments = retrieve_top_k(
-            db,
+            qdrant,
             query_text=user_text,
             query_embedding=qvec,
             k=settings.top_k,
@@ -278,7 +286,7 @@ async def agent_chat(
     )
 
     agent = Agent(
-        db=db,
+        qdrant=qdrant,
         embed_client=embed_client,
         chat_client=chat_client,
         settings=settings,

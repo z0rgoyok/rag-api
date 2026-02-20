@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 import uuid
 
-from core.db import Db, execute, execute_many, fetch_one
+from sqlalchemy import case, func, select, update
+
+from core.db import Db
+from core.db_models import IngestTask as IngestTaskModel
+from core.db_models import IngestTaskItem as IngestTaskItemModel
 
 RunStrategy = Literal["fail", "skip"]
 PipelineMode = Literal["full", "extract_only"]
 InputMode = Literal["pdf", "chunks"]
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -46,29 +55,49 @@ class IngestTaskStats:
     skipped_items: int
 
 
-def _row_to_task(row: dict) -> IngestTask:
+def _to_task(row: IngestTaskModel) -> IngestTask:
+    row_id = uuid.UUID(str(getattr(row, "id")))
+    pdf_dir = str(getattr(row, "pdf_dir"))
+    input_mode = str(getattr(row, "input_mode"))
+    chunking_strategy = str(getattr(row, "chunking_strategy"))
+    error_strategy = str(getattr(row, "error_strategy"))
+    pipeline_mode = str(getattr(row, "pipeline_mode"))
+    extract_output_dir_raw = getattr(row, "extract_output_dir")
+    extract_output_dir = None if extract_output_dir_raw is None else str(extract_output_dir_raw)
+    force = bool(getattr(row, "force"))
+    status = str(getattr(row, "status"))
+    last_error_raw = getattr(row, "last_error")
+    last_error = None if last_error_raw is None else str(last_error_raw)
+
     return IngestTask(
-        id=row["id"],
-        source_dir=str(row["pdf_dir"]),
-        input_mode=str(row["input_mode"]),
-        chunking_strategy=str(row["chunking_strategy"]),
-        error_strategy=str(row["error_strategy"]),
-        pipeline_mode=str(row["pipeline_mode"]),
-        extract_output_dir=row["extract_output_dir"],
-        force=bool(row["force"]),
-        status=str(row["status"]),
-        last_error=row["last_error"],
+        id=row_id,
+        source_dir=pdf_dir,
+        input_mode=input_mode,
+        chunking_strategy=chunking_strategy,
+        error_strategy=error_strategy,
+        pipeline_mode=pipeline_mode,
+        extract_output_dir=extract_output_dir,
+        force=force,
+        status=status,
+        last_error=last_error,
     )
 
 
-def _row_to_task_item(row: dict) -> IngestTaskItem:
+def _to_task_item(row: IngestTaskItemModel) -> IngestTaskItem:
+    row_id = uuid.UUID(str(getattr(row, "id")))
+    task_id = uuid.UUID(str(getattr(row, "task_id")))
+    ordinal = int(getattr(row, "ordinal"))
+    source_path = str(getattr(row, "source_path"))
+    status = str(getattr(row, "status"))
+    attempt = int(getattr(row, "attempt"))
+
     return IngestTaskItem(
-        id=row["id"],
-        task_id=row["task_id"],
-        ordinal=int(row["ordinal"]),
-        source_path=str(row["source_path"]),
-        status=str(row["status"]),
-        attempt=int(row["attempt"]),
+        id=row_id,
+        task_id=task_id,
+        ordinal=ordinal,
+        source_path=source_path,
+        status=status,
+        attempt=attempt,
     )
 
 
@@ -85,92 +114,43 @@ def create_ingest_task(
     force: bool,
 ) -> IngestTask:
     task_id = uuid.uuid4()
-    with db.connect() as conn:
-        execute(
-            conn,
-            """
-            insert into ingest_tasks (
-              id,
-              pdf_dir,
-              input_mode,
-              chunking_strategy,
-              error_strategy,
-              pipeline_mode,
-              extract_output_dir,
-              force,
-              status,
-              heartbeat_at
-            )
-            values (
-              %(id)s,
-              %(pdf_dir)s,
-              %(input_mode)s,
-              %(chunking_strategy)s,
-              %(error_strategy)s,
-              %(pipeline_mode)s,
-              %(extract_output_dir)s,
-              %(force)s,
-              'pending',
-              now()
-            )
-            """,
-            {
-                "id": task_id,
-                "pdf_dir": str(source_dir),
-                "input_mode": input_mode,
-                "chunking_strategy": chunking_strategy,
-                "error_strategy": error_strategy,
-                "pipeline_mode": pipeline_mode,
-                "extract_output_dir": extract_output_dir,
-                "force": force,
-            },
+    with db.session() as session:
+        task = IngestTaskModel(
+            id=task_id,
+            pdf_dir=str(source_dir),
+            input_mode=input_mode,
+            chunking_strategy=chunking_strategy,
+            error_strategy=error_strategy,
+            pipeline_mode=pipeline_mode,
+            extract_output_dir=extract_output_dir,
+            force=force,
+            status="pending",
+            heartbeat_at=_now(),
         )
+        session.add(task)
 
-        item_rows = []
         for ordinal, path in enumerate(source_paths):
-            item_rows.append(
-                {
-                    "id": uuid.uuid4(),
-                    "task_id": task_id,
-                    "ordinal": ordinal,
-                    "source_path": str(path),
-                    "status": "pending",
-                }
+            session.add(
+                IngestTaskItemModel(
+                    id=uuid.uuid4(),
+                    task_id=task_id,
+                    ordinal=ordinal,
+                    source_path=str(path),
+                    status="pending",
+                )
             )
 
-        execute_many(
-            conn,
-            """
-            insert into ingest_task_items (
-              id,
-              task_id,
-              ordinal,
-              source_path,
-              status
-            )
-            values (
-              %(id)s,
-              %(task_id)s,
-              %(ordinal)s,
-              %(source_path)s,
-              %(status)s
-            )
-            """,
-            item_rows,
-        )
-
-        row = fetch_one(conn, "select * from ingest_tasks where id = %(id)s", {"id": task_id})
-        if not row:
-            raise RuntimeError("Failed to load created ingest task.")
-        return _row_to_task(row)
+        session.commit()
+        session.refresh(task)
+        return _to_task(task)
 
 
 def get_ingest_task(db: Db, *, task_id: uuid.UUID) -> IngestTask | None:
-    with db.connect() as conn:
-        row = fetch_one(conn, "select * from ingest_tasks where id = %(id)s", {"id": task_id})
-        if not row:
+    with db.session() as session:
+        row = session.get(IngestTaskModel, task_id)
+        if row is None:
             return None
-        return _row_to_task(row)
+        return _to_task(row)
 
 
 def prepare_ingest_task_run(
@@ -183,303 +163,256 @@ def prepare_ingest_task_run(
     expected_input_mode: InputMode | None = None,
     extract_output_dir: str | None = None,
 ) -> IngestTask:
-    with db.connect() as conn:
-        row = fetch_one(conn, "select * from ingest_tasks where id = %(id)s", {"id": task_id})
-        if not row:
+    with db.session() as session:
+        task = session.get(IngestTaskModel, task_id)
+        if task is None:
             raise RuntimeError(f"Ingest task not found: {task_id}")
-        status = str(row["status"])
-        if status == "completed":
+
+        if str(task.status) == "completed":
             raise RuntimeError(f"Ingest task is already completed: {task_id}")
-        if expected_pipeline_mode and str(row["pipeline_mode"]) != expected_pipeline_mode:
+
+        if expected_pipeline_mode and str(task.pipeline_mode) != expected_pipeline_mode:
             raise RuntimeError(
-                f"Ingest task mode mismatch: task={row['pipeline_mode']} run={expected_pipeline_mode}"
+                f"Ingest task mode mismatch: task={task.pipeline_mode} run={expected_pipeline_mode}"
             )
-        if expected_input_mode and str(row["input_mode"]) != expected_input_mode:
+        if expected_input_mode and str(task.input_mode) != expected_input_mode:
             raise RuntimeError(
-                f"Ingest task input mismatch: task={row['input_mode']} run={expected_input_mode}"
+                f"Ingest task input mismatch: task={task.input_mode} run={expected_input_mode}"
             )
         if expected_pipeline_mode == "extract_only" and extract_output_dir:
-            existing_out = str(row.get("extract_output_dir") or "")
+            existing_out = str(task.extract_output_dir or "")
             if existing_out and existing_out != extract_output_dir:
                 raise RuntimeError(
                     f"Ingest task output mismatch: task={existing_out} run={extract_output_dir}"
                 )
 
-        execute(
-            conn,
-            """
-            update ingest_task_items
-            set
-              status = 'pending',
-              finished_at = null,
-              heartbeat_at = now(),
-              last_error = coalesce(last_error, 'Recovered for retry')
-            where task_id = %(task_id)s and status in ('running', 'failed')
-            """,
-            {"task_id": task_id},
+        now = _now()
+        session.execute(
+            update(IngestTaskItemModel)
+            .where(
+                IngestTaskItemModel.task_id == task_id,
+                IngestTaskItemModel.status.in_(["running", "failed"]),
+            )
+            .values(
+                status="pending",
+                finished_at=None,
+                heartbeat_at=now,
+                last_error=case(
+                    (IngestTaskItemModel.last_error.is_(None), "Recovered for retry"),
+                    else_=IngestTaskItemModel.last_error,
+                ),
+            )
         )
 
-        run_row = fetch_one(
-            conn,
-            """
-            update ingest_tasks
-            set
-              status = 'running',
-              started_at = coalesce(started_at, now()),
-              finished_at = null,
-              heartbeat_at = now(),
-              error_strategy = %(error_strategy)s,
-              force = %(force)s,
-              extract_output_dir = coalesce(extract_output_dir, %(extract_output_dir)s),
-              last_error = null
-            where id = %(task_id)s
-            returning *
-            """,
-            {
-                "task_id": task_id,
-                "error_strategy": error_strategy,
-                "force": force,
-                "extract_output_dir": extract_output_dir,
-            },
-        )
-        if not run_row:
-            raise RuntimeError(f"Failed to start ingest task: {task_id}")
-        return _row_to_task(run_row)
+        task.status = "running"
+        if task.started_at is None:
+            task.started_at = now
+        task.finished_at = None
+        task.heartbeat_at = now
+        task.error_strategy = error_strategy
+        task.force = force
+        if task.extract_output_dir is None and extract_output_dir is not None:
+            task.extract_output_dir = extract_output_dir
+        task.last_error = None
+
+        session.commit()
+        session.refresh(task)
+        return _to_task(task)
 
 
 def claim_next_ingest_task_item(db: Db, *, task_id: uuid.UUID) -> IngestTaskItem | None:
-    with db.connect() as conn:
-        row = fetch_one(
-            conn,
-            """
-            with next_item as (
-              select id
-              from ingest_task_items
-              where task_id = %(task_id)s and status = 'pending'
-              order by ordinal
-              limit 1
-            )
-            update ingest_task_items as it
-            set
-              status = 'running',
-              attempt = it.attempt + 1,
-              started_at = now(),
-              finished_at = null,
-              heartbeat_at = now(),
-              last_error = null
-            from next_item
-            where it.id = next_item.id
-            returning it.*
-            """,
-            {"task_id": task_id},
+    with db.session() as session:
+        stmt = (
+            select(IngestTaskItemModel)
+            .where(IngestTaskItemModel.task_id == task_id, IngestTaskItemModel.status == "pending")
+            .order_by(IngestTaskItemModel.ordinal)
+            .limit(1)
+            .with_for_update(skip_locked=True)
         )
-        if not row:
+        row = session.execute(stmt).scalar_one_or_none()
+        if row is None:
             return None
-        return _row_to_task_item(row)
+
+        now = _now()
+        row.status = "running"
+        row.attempt = int(row.attempt) + 1
+        row.started_at = now
+        row.finished_at = None
+        row.heartbeat_at = now
+        row.last_error = None
+
+        session.commit()
+        session.refresh(row)
+        return _to_task_item(row)
 
 
 def touch_ingest_task(db: Db, *, task_id: uuid.UUID) -> None:
-    with db.connect() as conn:
-        execute(
-            conn,
-            """
-            update ingest_tasks
-            set heartbeat_at = now()
-            where id = %(task_id)s
-            """,
-            {"task_id": task_id},
+    with db.session() as session:
+        session.execute(
+            update(IngestTaskModel)
+            .where(IngestTaskModel.id == task_id)
+            .values(heartbeat_at=_now())
         )
+        session.commit()
 
 
 def touch_ingest_task_item(db: Db, *, task_item_id: uuid.UUID) -> None:
-    with db.connect() as conn:
-        execute(
-            conn,
-            """
-            update ingest_task_items
-            set heartbeat_at = now()
-            where id = %(task_item_id)s
-            """,
-            {"task_item_id": task_item_id},
+    with db.session() as session:
+        session.execute(
+            update(IngestTaskItemModel)
+            .where(IngestTaskItemModel.id == task_item_id)
+            .values(heartbeat_at=_now())
         )
+        session.commit()
 
 
 def mark_ingest_task_item_completed(db: Db, *, task_item_id: uuid.UUID) -> None:
-    with db.connect() as conn:
-        execute(
-            conn,
-            """
-            update ingest_task_items
-            set
-              status = 'completed',
-              finished_at = now(),
-              heartbeat_at = now(),
-              last_error = null
-            where id = %(task_item_id)s and status = 'running'
-            """,
-            {"task_item_id": task_item_id},
+    now = _now()
+    with db.session() as session:
+        session.execute(
+            update(IngestTaskItemModel)
+            .where(IngestTaskItemModel.id == task_item_id, IngestTaskItemModel.status == "running")
+            .values(
+                status="completed",
+                finished_at=now,
+                heartbeat_at=now,
+                last_error=None,
+            )
         )
+        session.commit()
 
 
 def mark_ingest_task_item_failed(db: Db, *, task_item_id: uuid.UUID, error: str) -> None:
-    with db.connect() as conn:
-        execute(
-            conn,
-            """
-            update ingest_task_items
-            set
-              status = 'failed',
-              finished_at = now(),
-              heartbeat_at = now(),
-              last_error = %(error)s
-            where id = %(task_item_id)s and status = 'running'
-            """,
-            {
-                "task_item_id": task_item_id,
-                "error": error,
-            },
+    now = _now()
+    with db.session() as session:
+        session.execute(
+            update(IngestTaskItemModel)
+            .where(IngestTaskItemModel.id == task_item_id, IngestTaskItemModel.status == "running")
+            .values(
+                status="failed",
+                finished_at=now,
+                heartbeat_at=now,
+                last_error=error,
+            )
         )
+        session.commit()
 
 
 def mark_ingest_task_item_skipped(db: Db, *, task_item_id: uuid.UUID, error: str) -> None:
-    with db.connect() as conn:
-        execute(
-            conn,
-            """
-            update ingest_task_items
-            set
-              status = 'skipped',
-              finished_at = now(),
-              heartbeat_at = now(),
-              last_error = %(error)s
-            where id = %(task_item_id)s and status = 'running'
-            """,
-            {
-                "task_item_id": task_item_id,
-                "error": error,
-            },
+    now = _now()
+    with db.session() as session:
+        session.execute(
+            update(IngestTaskItemModel)
+            .where(IngestTaskItemModel.id == task_item_id, IngestTaskItemModel.status == "running")
+            .values(
+                status="skipped",
+                finished_at=now,
+                heartbeat_at=now,
+                last_error=error,
+            )
         )
+        session.commit()
 
 
 def mark_ingest_task_failed(db: Db, *, task_id: uuid.UUID, error: str) -> None:
-    with db.connect() as conn:
-        execute(
-            conn,
-            """
-            update ingest_tasks
-            set
-              status = 'failed',
-              finished_at = now(),
-              heartbeat_at = now(),
-              last_error = %(error)s
-            where id = %(task_id)s
-            """,
-            {
-                "task_id": task_id,
-                "error": error,
-            },
+    now = _now()
+    with db.session() as session:
+        session.execute(
+            update(IngestTaskModel)
+            .where(IngestTaskModel.id == task_id)
+            .values(
+                status="failed",
+                finished_at=now,
+                heartbeat_at=now,
+                last_error=error,
+            )
         )
+        session.commit()
 
 
 def mark_ingest_task_interrupted(db: Db, *, task_id: uuid.UUID, error: str) -> None:
-    with db.connect() as conn:
-        execute(
-            conn,
-            """
-            update ingest_task_items
-            set
-              status = 'pending',
-              finished_at = null,
-              heartbeat_at = now(),
-              last_error = coalesce(last_error, 'Interrupted while processing')
-            where task_id = %(task_id)s and status = 'running'
-            """,
-            {"task_id": task_id},
+    now = _now()
+    with db.session() as session:
+        session.execute(
+            update(IngestTaskItemModel)
+            .where(IngestTaskItemModel.task_id == task_id, IngestTaskItemModel.status == "running")
+            .values(
+                status="pending",
+                finished_at=None,
+                heartbeat_at=now,
+                last_error=case(
+                    (IngestTaskItemModel.last_error.is_(None), "Interrupted while processing"),
+                    else_=IngestTaskItemModel.last_error,
+                ),
+            )
         )
-        execute(
-            conn,
-            """
-            update ingest_tasks
-            set
-              status = 'interrupted',
-              finished_at = now(),
-              heartbeat_at = now(),
-              last_error = %(error)s
-            where id = %(task_id)s
-            """,
-            {
-                "task_id": task_id,
-                "error": error,
-            },
+        session.execute(
+            update(IngestTaskModel)
+            .where(IngestTaskModel.id == task_id)
+            .values(
+                status="interrupted",
+                finished_at=now,
+                heartbeat_at=now,
+                last_error=error,
+            )
         )
+        session.commit()
 
 
 def mark_ingest_task_completed_if_done(db: Db, *, task_id: uuid.UUID) -> bool:
-    with db.connect() as conn:
-        row = fetch_one(
-            conn,
-            """
-            update ingest_tasks
-            set
-              status = 'completed',
-              finished_at = now(),
-              heartbeat_at = now(),
-              last_error = null
-            where
-              id = %(task_id)s
-              and status = 'running'
-              and not exists (
-                select 1
-                from ingest_task_items i
-                where
-                  i.task_id = %(task_id)s
-                  and i.status in ('pending', 'running')
-              )
-              and not exists (
-                select 1
-                from ingest_task_items i
-                where
-                  i.task_id = %(task_id)s
-                  and i.status = 'failed'
-              )
-            returning id
-            """,
-            {"task_id": task_id},
-        )
-        return row is not None
+    with db.session() as session:
+        task = session.get(IngestTaskModel, task_id)
+        if task is None or str(task.status) != "running":
+            return False
+
+        pending_or_running = session.execute(
+            select(func.count())
+            .select_from(IngestTaskItemModel)
+            .where(
+                IngestTaskItemModel.task_id == task_id,
+                IngestTaskItemModel.status.in_(["pending", "running"]),
+            )
+        ).scalar_one()
+        failed_items = session.execute(
+            select(func.count())
+            .select_from(IngestTaskItemModel)
+            .where(
+                IngestTaskItemModel.task_id == task_id,
+                IngestTaskItemModel.status == "failed",
+            )
+        ).scalar_one()
+
+        if int(pending_or_running) > 0 or int(failed_items) > 0:
+            return False
+
+        now = _now()
+        task.status = "completed"
+        task.finished_at = now
+        task.heartbeat_at = now
+        task.last_error = None
+        session.commit()
+        return True
 
 
 def get_ingest_task_stats(db: Db, *, task_id: uuid.UUID) -> IngestTaskStats:
-    with db.connect() as conn:
-        row = fetch_one(
-            conn,
-            """
-            select
-              count(*)::int as total_items,
-              count(*) filter (where status = 'pending')::int as pending_items,
-              count(*) filter (where status = 'running')::int as running_items,
-              count(*) filter (where status = 'completed')::int as completed_items,
-              count(*) filter (where status = 'failed')::int as failed_items,
-              count(*) filter (where status = 'skipped')::int as skipped_items
-            from ingest_task_items
-            where task_id = %(task_id)s
-            """,
-            {"task_id": task_id},
-        )
-        if not row:
-            return IngestTaskStats(
-                total_items=0,
-                pending_items=0,
-                running_items=0,
-                completed_items=0,
-                failed_items=0,
-                skipped_items=0,
-            )
-        return IngestTaskStats(
-            total_items=int(row["total_items"]),
-            pending_items=int(row["pending_items"]),
-            running_items=int(row["running_items"]),
-            completed_items=int(row["completed_items"]),
-            failed_items=int(row["failed_items"]),
-            skipped_items=int(row["skipped_items"]),
-        )
+    with db.session() as session:
+        row = session.execute(
+            select(
+                func.count(IngestTaskItemModel.id),
+                func.sum(case((IngestTaskItemModel.status == "pending", 1), else_=0)),
+                func.sum(case((IngestTaskItemModel.status == "running", 1), else_=0)),
+                func.sum(case((IngestTaskItemModel.status == "completed", 1), else_=0)),
+                func.sum(case((IngestTaskItemModel.status == "failed", 1), else_=0)),
+                func.sum(case((IngestTaskItemModel.status == "skipped", 1), else_=0)),
+            ).where(IngestTaskItemModel.task_id == task_id)
+        ).one()
+
+    total_items = int(row[0] or 0)
+    return IngestTaskStats(
+        total_items=total_items,
+        pending_items=int(row[1] or 0),
+        running_items=int(row[2] or 0),
+        completed_items=int(row[3] or 0),
+        failed_items=int(row[4] or 0),
+        skipped_items=int(row[5] or 0),
+    )

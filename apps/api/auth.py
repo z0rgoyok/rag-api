@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import Header, HTTPException, status
+from sqlalchemy import select
 
-from core.db import Db, fetch_one
+from core.db import Db
+from core.db_models import ApiKey
 
 
 @dataclass(frozen=True)
@@ -28,15 +30,11 @@ def authenticate(db: Db, authorization: Optional[str], *, allow_anonymous: bool)
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Authorization header")
 
-    with db.connect() as conn:
-        row = fetch_one(
-            conn,
-            "select api_key, tier, citations_enabled from api_keys where api_key = %(k)s",
-            {"k": token},
-        )
-        if not row:
+    with db.session() as session:
+        row = session.execute(select(ApiKey).where(ApiKey.api_key == token)).scalar_one_or_none()
+        if row is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
-        return Principal(api_key=row["api_key"], tier=row["tier"], citations_enabled=bool(row["citations_enabled"]))
+        return Principal(api_key=row.api_key, tier=row.tier, citations_enabled=bool(row.citations_enabled))
 
 
 def auth_dependency(db: Db, allow_anonymous: bool):
@@ -44,4 +42,3 @@ def auth_dependency(db: Db, allow_anonymous: bool):
         return authenticate(db, authorization, allow_anonymous=allow_anonymous)
 
     return _dep
-

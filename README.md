@@ -13,7 +13,7 @@ Goals:
 - `var/pdfs/` — drop PDFs here (your corpus source-of-truth; can contain subfolders).
 - `apps/api/` — FastAPI service (auth, entitlements, retrieval, streaming proxy to LM Studio).
 - `apps/agent/` — Agentic RAG module (ReAct pattern, iterative retrieval).
-- `apps/ingest/` — CLI to ingest PDFs into Postgres+pgvector.
+- `apps/ingest/` — CLI to ingest PDFs or pre-extracted chunks into Qdrant (vector index) with PostgreSQL metadata/state.
 - `infra/` — docker compose + DB init.
 - `scripts/` — common operational workflows (compose up/down, ingest, etc).
 
@@ -25,49 +25,57 @@ Goals:
 cp /path/to/*.pdf var/pdfs/
 ```
 
-1. Start services (Postgres+pgvector + API):
+1. Start services (PostgreSQL + Qdrant + API):
 
 ```bash
 ./scripts/up.sh
 ```
 
-1. Ingest PDFs into the vector index:
+1. Run ingest:
 
 ```bash
 ./scripts/ingest.sh
 ```
 
-Default behavior is fail-fast (`--on-error fail`).
-To skip broken files and continue:
+`scripts/ingest.sh` mode behavior:
+- `INGEST_MODE=extract` -> host/local run (`pdf_extract` in CLI).
+- `INGEST_MODE=ingest` -> docker run (`chunks_full` in CLI).
+- `INGEST_MODE=resume_extract` -> host/local resume.
+- `INGEST_MODE=resume_ingest` -> docker resume.
+
+Default mode is `ingest` (fail-fast `--on-error fail`).
+Index from already extracted JSONL chunks in Docker:
 
 ```bash
-INGEST_ON_ERROR=skip ./scripts/ingest.sh
+INGEST_MODE=ingest ./scripts/ingest.sh
 ```
 
-Extract-only mode (no embeddings, writes chunks to files):
+Extract-only mode (host/local, no embeddings):
 
 ```bash
-INGEST_MODE=pdf_extract ./scripts/ingest.sh
-```
-
-Ingest from already extracted chunk files:
-
-```bash
-INGEST_MODE=chunks_full ./scripts/ingest.sh
+INGEST_MODE=extract ./scripts/ingest.sh
 ```
 
 Resume an interrupted task:
 
 ```bash
-INGEST_MODE=resume INGEST_TASK_ID=<task_uuid> INGEST_ON_ERROR=skip ./scripts/ingest.sh
+INGEST_MODE=resume_ingest INGEST_TASK_ID=<task_uuid> INGEST_ON_ERROR=skip ./scripts/ingest.sh
+```
+
+Skip broken files and continue:
+
+```bash
+INGEST_MODE=ingest INGEST_ON_ERROR=skip ./scripts/ingest.sh
 ```
 
 `scripts/ingest.sh` env options:
-- `INGEST_MODE=pdf_full|pdf_extract|chunks_full|resume` (default `pdf_full`)
+- `INGEST_MODE=extract|ingest|resume_extract|resume_ingest` (default `ingest`)
 - `INGEST_ON_ERROR=fail|skip` (default `fail`)
-- `INGEST_TASK_ID=<task_uuid>` (required for `INGEST_MODE=resume`)
-- `INGEST_CHUNKS_DIR=/app/var/extracted` (used by `INGEST_MODE=chunks_full`)
-- `INGEST_EXTRACT_OUTPUT_DIR=var/extracted` (used by `INGEST_MODE=pdf_extract`)
+- `INGEST_TASK_ID=<task_uuid>` (required for `resume_*`)
+- `INGEST_PDF_DIR=var/pdfs` (used by `INGEST_MODE=extract`)
+- `INGEST_CHUNKS_DIR=/app/var/extracted` (used by `INGEST_MODE=ingest`, docker path)
+- `INGEST_EXTRACT_OUTPUT_DIR=var/extracted` (used by `INGEST_MODE=extract`)
+- `PYTHON_BIN=.venv/bin/python` (local Python interpreter)
 - `INGEST_FORCE=1` (adds `--force`)
 
 1. Create an API key (prints it to stdout):
@@ -84,7 +92,7 @@ INGEST_MODE=resume INGEST_TASK_ID=<task_uuid> INGEST_ON_ERROR=skip ./scripts/ing
 
 ## Local (non-docker) workflow (optional)
 
-1. Start Postgres+pgvector:
+1. Start PostgreSQL + Qdrant:
 
 ```bash
 cd infra
@@ -162,29 +170,40 @@ uvicorn apps.api.main:app --reload --port 18080
     - Model example: `EMBEDDINGS_MODEL=vertex_ai/text-multilingual-embedding-002`
     - Required: `EMBEDDINGS_VERTEX_PROJECT`, `EMBEDDINGS_VERTEX_LOCATION`
     - Auth: Application Default Credentials (recommended) or `EMBEDDINGS_VERTEX_CREDENTIALS` path
+- Storage:
+  - `DATABASE_URL` configures PostgreSQL for metadata (`api_keys`, `rag_meta`, ingest task state).
+  - `QDRANT_URL` / `QDRANT_API_KEY` / `QDRANT_COLLECTION` configure vector storage and retrieval.
 - Ports:
   - API: `API_PORT` (default `18080`)
-  - Postgres: `PG_PORT` (default `56473`)
+  - Postgres (metadata/state): `PG_PORT` (default `56473`)
+  - Qdrant (vector index): `QDRANT_PORT` (default `6333`)
 - Retrieval:
   - `TOP_K` controls how many chunks are returned to context.
-  - `RETRIEVAL_USE_FTS=1|0` toggles lexical FTS blending with vector search (`0` = pure vector).
-  - With `RETRIEVAL_USE_FTS=0`, returned `score` is cosine similarity (`1 - distance`).
+  - `RETRIEVAL_USE_FTS=1|0` toggles hybrid ranking (vector similarity + lexical score on retrieved candidates).
+  - With `RETRIEVAL_USE_FTS=0`, returned `score` is pure vector similarity from Qdrant.
 - Ingest chunking strategy:
   - `CHUNKING_STRATEGY=recursive|sliding|semantic|docling_hierarchical|docling_hybrid`
   - `semantic` is the recommended default for PDF books.
+  - `docling_*` strategies are for host/local PDF extraction flow.
 - Ingest reliability:
   - Ingest is task-based (`ingest_tasks` + `ingest_task_items` in DB).
   - Interrupted runs are resumable via `--task-id`.
   - `--on-error fail|skip` controls per-file failure behavior for each start/resume.
   - Schema metadata validates both embedding dimension and `EMBEDDINGS_MODEL` to avoid mixed vector spaces.
-  - Run mode is explicit via `--mode`:
-    - `pdf_full` = PDF -> chunks -> embeddings -> DB
+  - `INGEST_EMBED_BATCH_SIZE` controls embeddings request batch size during ingest (useful for large chunk files / provider timeouts).
+  - CLI run mode is explicit via `--mode`:
+    - `pdf_full` = PDF -> chunks -> embeddings -> Qdrant
     - `pdf_extract` = PDF -> `*.chunks.jsonl` only
-    - `chunks_full` = `*.chunks.jsonl` -> embeddings -> DB
+    - `chunks_full` = `*.chunks.jsonl` -> embeddings -> Qdrant
     - `resume` = continue existing task by `--task-id`
+  - Wrapper script mode (`INGEST_MODE`) is environment-specific:
+    - `extract` = host/local extract
+    - `ingest` = docker chunks ingest
+    - `resume_extract` = host/local resume
+    - `resume_ingest` = docker resume
 - Chunk sanitization:
   - Base text cleanup runs before chunking in extraction.
-  - Chunk sanitizer runs after chunking (before embeddings/DB insert): `CHUNK_SANITIZE_ENABLED`, `CHUNK_SANITIZE_MIN_WORDS`, `CHUNK_SANITIZE_DEDUP`.
+  - Chunk sanitizer runs after chunking (before embeddings/Qdrant upsert): `CHUNK_SANITIZE_ENABLED`, `CHUNK_SANITIZE_MIN_WORDS`, `CHUNK_SANITIZE_DEDUP`.
 
 Note: if you run Docker Compose manually with `-f infra/compose.yml`, pass the env file explicitly (our `scripts/*.sh` already do this):
 `docker compose --env-file .env -f infra/compose.yml up -d`
@@ -255,8 +274,12 @@ See `apps/agent/README.md` for detailed documentation.
 ## Notes
 
 - The service **enforces** entitlements server-side. Client-provided `citations=true` is ignored unless the API key has `citations_enabled=true`.
-- PDFs are mounted read-only into the API container at `/data/pdfs`. Ingestion reads from `/data/pdfs`.
+- PDFs are mounted read-only into the API container at `/data/pdfs`.
+- Docker image intentionally excludes `docling` extraction dependencies.
+- Extract flow is host/local only (`INGEST_MODE=extract`).
+- Ingest-from-chunks flow is docker only (`INGEST_MODE=ingest`).
 - PDF text extraction:
+  - Applies to host/local extract flow (`INGEST_MODE=extract`).
   - `PDF_TEXT_EXTRACTOR=docling` (default)
   - `DOCLING_DO_OCR=1|0` (default `1`, hybrid OCR: page-level auto-detection)
   - `DOCLING_DO_TABLE_STRUCTURE=1|0` (default `0`)

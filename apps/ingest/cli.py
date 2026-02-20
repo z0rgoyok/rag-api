@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Callable, Literal
 import uuid
@@ -15,6 +16,7 @@ from core.chunking.factory import ChunkingSettings
 from core.config import load_settings
 from core.db import Db
 from core.embeddings_client import EmbeddingsClient, build_embeddings_client
+from core.qdrant import Qdrant
 from core.schema import ensure_ingest_task_schema, ensure_schema, get_schema_info
 
 from .chunk_sanitize import sanitize_chunks
@@ -167,7 +169,7 @@ def _extract_chunks(*, pdf_path: Path, chunker: ChunkingStrategy | None, chunkin
 
 
 async def ingest_pdf(
-    db: Db,
+    qdrant: Qdrant,
     lm: EmbeddingsClient | None,
     chunker: ChunkingStrategy | None,
     *,
@@ -196,7 +198,7 @@ async def ingest_pdf(
         if not force and is_extract_output_up_to_date(output_path=output_path, source_sha256=file_hash):
             return "up_to_date"
     else:
-        if not force and is_document_up_to_date(db, source_path=source_path, sha256=file_hash):
+        if not force and is_document_up_to_date(qdrant, source_path=source_path, sha256=file_hash):
             return "up_to_date"
 
     chunks = _extract_chunks(
@@ -224,7 +226,7 @@ async def ingest_pdf(
         return "extracted"
 
     return await _embed_and_store(
-        db=db,
+        qdrant=qdrant,
         lm=lm,
         source_path=source_path,
         source_title=pdf_path.name,
@@ -236,7 +238,7 @@ async def ingest_pdf(
 
 
 async def ingest_chunks_jsonl(
-    db: Db,
+    qdrant: Qdrant,
     lm: EmbeddingsClient | None,
     *,
     chunks_path: Path,
@@ -254,12 +256,12 @@ async def ingest_chunks_jsonl(
     if touch:
         touch()
 
-    if not force and is_document_up_to_date(db, source_path=source_path, sha256=source_sha256):
+    if not force and is_document_up_to_date(qdrant, source_path=source_path, sha256=source_sha256):
         return "up_to_date"
     if not chunks:
         raise RuntimeError(f"No chunks loaded after sanitization: {chunks_path}")
     return await _embed_and_store(
-        db=db,
+        qdrant=qdrant,
         lm=lm,
         source_path=source_path,
         source_title=Path(source_path).name or chunks_path.stem,
@@ -272,7 +274,7 @@ async def ingest_chunks_jsonl(
 
 async def _embed_and_store(
     *,
-    db: Db,
+    qdrant: Qdrant,
     lm: EmbeddingsClient | None,
     source_path: str,
     source_title: str,
@@ -283,20 +285,34 @@ async def _embed_and_store(
 ) -> Literal["indexed"]:
     if lm is None:
         raise RuntimeError("Embeddings client is required for full ingest mode.")
-    embeddings = await lm.embeddings(
-        model=embedding_model,
-        input_texts=[c.content for c in chunks],
-        input_type="RETRIEVAL_DOCUMENT",
-    )
+
+    batch_size_raw = (os.getenv("INGEST_EMBED_BATCH_SIZE") or "").strip()
+    try:
+        batch_size = int(batch_size_raw) if batch_size_raw else 128
+    except ValueError:
+        batch_size = 128
+    if batch_size <= 0:
+        batch_size = 128
+
+    embeddings: list[list[float]] = []
+    for start in range(0, len(chunks), batch_size):
+        end = min(len(chunks), start + batch_size)
+        part = await lm.embeddings(
+            model=embedding_model,
+            input_texts=[c.content for c in chunks[start:end]],
+            input_type="RETRIEVAL_DOCUMENT",
+        )
+        embeddings.extend(part)
+        if touch:
+            touch()
+
     if len(embeddings) != len(chunks):
         raise RuntimeError(
             f"Embedding count mismatch for {source_path}: chunks={len(chunks)} embeddings={len(embeddings)}"
         )
-    if touch:
-        touch()
 
     replace_document_content(
-        db,
+        qdrant,
         source_path=source_path,
         title=source_title,
         sha256=source_sha256,
@@ -311,6 +327,7 @@ async def _embed_and_store(
 async def _run_ingest_task(
     *,
     db: Db,
+    qdrant: Qdrant,
     lm: EmbeddingsClient | None,
     task_id: uuid.UUID,
     chunker: ChunkingStrategy | None,
@@ -350,7 +367,7 @@ async def _run_ingest_task(
             touch()
             if input_mode == "pdf":
                 outcome = await ingest_pdf(
-                    db,
+                    qdrant,
                     lm,
                     chunker,
                     pdf_path=source_file,
@@ -365,7 +382,7 @@ async def _run_ingest_task(
                 if pipeline_mode != "full":
                     raise RuntimeError("Chunks input supports only full mode.")
                 outcome = await ingest_chunks_jsonl(
-                    db,
+                    qdrant,
                     lm,
                     chunks_path=source_file,
                     embedding_model=embedding_model,
@@ -413,6 +430,11 @@ def main() -> None:
     load_dotenv()
     settings = load_settings()
     db = Db(settings.database_url)
+    qdrant = Qdrant(
+        url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key,
+        collection=settings.qdrant_collection,
+    )
     embed_client: EmbeddingsClient | None = None
 
     parser = argparse.ArgumentParser(prog="rag-ingest")
@@ -608,12 +630,14 @@ def main() -> None:
                 ) from e
             ensure_schema(
                 db,
+                qdrant,
                 embedding_dim=dim,
                 embedding_model=settings.embeddings_model,
             )
         else:
             ensure_schema(
                 db,
+                qdrant,
                 embedding_dim=info.embedding_dim,
                 embedding_model=settings.embeddings_model,
             )
@@ -631,6 +655,7 @@ def main() -> None:
         asyncio.run(
             _run_ingest_task(
                 db=db,
+                qdrant=qdrant,
                 lm=embed_client,
                 task_id=task.id,
                 chunker=chunker,

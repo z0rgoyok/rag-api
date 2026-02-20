@@ -1,6 +1,6 @@
 services:
   db:
-    image: pgvector/pgvector:pg16
+    image: postgres:16
     environment:
       POSTGRES_DB: rag
       POSTGRES_USER: rag
@@ -15,12 +15,22 @@ services:
       timeout: 5s
       retries: 20
 
+  qdrant:
+    image: qdrant/qdrant:v1.11.3
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - ../var/qdrant:/qdrant/storage
+
   api:
     build:
       context: ..
       dockerfile: Dockerfile
     environment:
       DATABASE_URL: postgresql://rag:rag@db:5432/rag
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-rag_segments}
       RAG_REPO_ROOT: /app
       # Provider-neutral (preferred). Leave unset to use LMSTUDIO_* defaults below.
       INFERENCE_BASE_URL: ${INFERENCE_BASE_URL:-}
@@ -76,3 +86,5 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      qdrant:
+        condition: service_started

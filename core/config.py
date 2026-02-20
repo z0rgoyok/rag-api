@@ -19,6 +19,9 @@ RerankingStrategyType = Literal["none", "cross_encoder", "cohere"]
 @dataclass(frozen=True)
 class Settings:
     database_url: str
+    qdrant_url: str
+    qdrant_api_key: str | None
+    qdrant_collection: str
     chat_backend: str
     chat_base_url: str
     chat_api_key: str | None
@@ -86,6 +89,9 @@ def load_settings() -> Settings:
 
     return Settings(
         database_url=os.getenv("DATABASE_URL", "postgresql://rag:rag@localhost:56473/rag"),
+        qdrant_url=(os.getenv("QDRANT_URL") or "http://localhost:6333").rstrip("/"),
+        qdrant_api_key=os.getenv("QDRANT_API_KEY") or None,
+        qdrant_collection=os.getenv("QDRANT_COLLECTION") or "rag_segments",
         chat_backend=chat_backend,
         chat_base_url=chat_base_url,
         chat_api_key=chat_api_key,

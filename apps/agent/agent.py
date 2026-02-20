@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.config import Settings
-from core.db import Db
 from core.embeddings_client import EmbeddingsClient
+from core.qdrant import Qdrant
 
 from .protocol import AgentResult, AgentState, SearchResult, ToolName
 from .tools import FinalAnswerTool, RefineAndSearchTool, SearchTool, get_tools_schema
@@ -48,13 +48,13 @@ class Agent:
     def __init__(
         self,
         *,
-        db: Db,
+        qdrant: Qdrant,
         embed_client: EmbeddingsClient,
         chat_client: Any,  # ChatClient protocol
         settings: Settings,
         config: AgentConfig | None = None,
     ) -> None:
-        self.db = db
+        self.qdrant = qdrant
         self.embed_client = embed_client
         self.chat_client = chat_client
         self.settings = settings
@@ -62,14 +62,14 @@ class Agent:
 
         # Initialize tools
         self.search_tool = SearchTool(
-            db=db,
+            qdrant=qdrant,
             embed_client=embed_client,
             embeddings_model=settings.embeddings_model,
             top_k=self.config.top_k,
             use_fts=settings.retrieval_use_fts,
         )
         self.refine_tool = RefineAndSearchTool(
-            db=db,
+            qdrant=qdrant,
             embed_client=embed_client,
             embeddings_model=settings.embeddings_model,
             top_k=self.config.top_k,
