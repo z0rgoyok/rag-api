@@ -20,6 +20,19 @@ class PdfChunkText:
     text: str
 
 
+@dataclass(frozen=True)
+class DoclingMode:
+    do_ocr: bool
+    do_table_structure: bool
+    force_full_page_ocr: bool
+    force_backend_text: bool
+    include_pictures: bool
+    do_picture_classification: bool
+    do_picture_description: bool
+    text_layer_ratio: float | None
+    threshold: float | None
+
+
 class _DoclingConverter(Protocol):
     def convert(self, source: str) -> Any: ...
 
@@ -218,6 +231,35 @@ def _build_docling_converter(path: Path) -> tuple[_DoclingConverter, set[object]
             "Install project dependencies to continue."
         ) from e
 
+    mode = _resolve_docling_mode(path)
+
+    pipeline_options = PdfPipelineOptions(
+        do_ocr=mode.do_ocr,
+        do_table_structure=mode.do_table_structure,
+        force_backend_text=mode.force_backend_text,
+        do_picture_classification=mode.do_picture_classification,
+        do_picture_description=mode.do_picture_description,
+    )
+    # Avoid image generation overhead for text extraction flows.
+    pipeline_options.generate_page_images = False
+    pipeline_options.generate_picture_images = False
+    pipeline_options.generate_table_images = False
+    if getattr(pipeline_options, "ocr_options", None) is not None:
+        pipeline_options.ocr_options.force_full_page_ocr = mode.force_full_page_ocr
+
+    export_labels = set(DocItemLabel)
+    if not mode.include_pictures:
+        export_labels.discard(DocItemLabel.PICTURE)
+
+    converter = DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
+        }
+    )
+    return converter, export_labels, mode.include_pictures
+
+
+def _resolve_docling_mode(path: Path) -> DoclingMode:
     # Hybrid OCR by default; auto-disable OCR for PDFs with strong text layer.
     do_ocr = _env_bool("DOCLING_DO_OCR", True)
     do_table_structure = _env_bool("DOCLING_DO_TABLE_STRUCTURE", False)
@@ -226,6 +268,9 @@ def _build_docling_converter(path: Path) -> tuple[_DoclingConverter, set[object]
     include_pictures = _env_bool("DOCLING_INCLUDE_PICTURES", False)
     do_picture_classification = _env_bool("DOCLING_DO_PICTURE_CLASSIFICATION", False)
     do_picture_description = _env_bool("DOCLING_DO_PICTURE_DESCRIPTION", False)
+
+    text_layer_ratio: float | None = None
+    threshold: float | None = None
     do_ocr_explicit = _is_env_explicit("DOCLING_DO_OCR")
     force_backend_text_explicit = _is_env_explicit("DOCLING_FORCE_BACKEND_TEXT")
 
@@ -239,34 +284,38 @@ def _build_docling_converter(path: Path) -> tuple[_DoclingConverter, set[object]
         if text_layer_ratio is not None and text_layer_ratio >= threshold:
             if not force_backend_text_explicit:
                 force_backend_text = True
-            # Disable OCR entirely only when text layer is effectively complete.
-            if text_layer_ratio >= 0.999:
-                do_ocr = False
+            # For PDFs with sufficiently strong text layer, prefer native text extraction
+            # and disable OCR to avoid OCR-specific noise artifacts.
+            do_ocr = False
 
-    pipeline_options = PdfPipelineOptions(
+    return DoclingMode(
         do_ocr=do_ocr,
         do_table_structure=do_table_structure,
+        force_full_page_ocr=force_full_page_ocr,
         force_backend_text=force_backend_text,
+        include_pictures=include_pictures,
         do_picture_classification=do_picture_classification,
         do_picture_description=do_picture_description,
+        text_layer_ratio=text_layer_ratio,
+        threshold=threshold,
     )
-    # Avoid image generation overhead for text extraction flows.
-    pipeline_options.generate_page_images = False
-    pipeline_options.generate_picture_images = False
-    pipeline_options.generate_table_images = False
-    if getattr(pipeline_options, "ocr_options", None) is not None:
-        pipeline_options.ocr_options.force_full_page_ocr = force_full_page_ocr
 
-    export_labels = set(DocItemLabel)
-    if not include_pictures:
-        export_labels.discard(DocItemLabel.PICTURE)
 
-    converter = DocumentConverter(
-        format_options={
-            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
-        }
+def describe_pdf_extraction_mode(path: Path) -> str:
+    extractor = (os.getenv("PDF_TEXT_EXTRACTOR") or "docling").strip().lower()
+    if extractor != "docling":
+        return f"extractor={extractor}"
+
+    mode = _resolve_docling_mode(path)
+    ratio = "n/a" if mode.text_layer_ratio is None else f"{mode.text_layer_ratio:.3f}"
+    threshold = "n/a" if mode.threshold is None else f"{mode.threshold:.3f}"
+    return (
+        "extractor=docling "
+        f"do_ocr={int(mode.do_ocr)} "
+        f"force_backend_text={int(mode.force_backend_text)} "
+        f"ratio={ratio} "
+        f"threshold={threshold}"
     )
-    return converter, export_labels, include_pictures
 
 
 def _extract_first_chunk_page(raw_chunk: object) -> int | None:

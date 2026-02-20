@@ -39,12 +39,11 @@ cp /path/to/*.pdf var/pdfs/
 
 `scripts/ingest.sh` mode behavior:
 - `INGEST_MODE=extract` -> host/local run (`pdf_extract` in CLI).
-- `INGEST_MODE=ingest` -> docker run (`chunks_full` in CLI).
-- `INGEST_MODE=resume_extract` -> host/local resume.
-- `INGEST_MODE=resume_ingest` -> docker resume.
+- `INGEST_MODE=ingest` -> host/local run (`chunks_full` in CLI).
+- `INGEST_MODE=resume` -> host/local resume.
 
 Default mode is `ingest` (fail-fast `--on-error fail`).
-Index from already extracted JSONL chunks in Docker:
+Index from already extracted JSONL chunks:
 
 ```bash
 INGEST_MODE=ingest ./scripts/ingest.sh
@@ -59,7 +58,7 @@ INGEST_MODE=extract ./scripts/ingest.sh
 Resume an interrupted task:
 
 ```bash
-INGEST_MODE=resume_ingest INGEST_TASK_ID=<task_uuid> INGEST_ON_ERROR=skip ./scripts/ingest.sh
+INGEST_MODE=resume INGEST_TASK_ID=<task_uuid> INGEST_ON_ERROR=skip ./scripts/ingest.sh
 ```
 
 Skip broken files and continue:
@@ -69,11 +68,11 @@ INGEST_MODE=ingest INGEST_ON_ERROR=skip ./scripts/ingest.sh
 ```
 
 `scripts/ingest.sh` env options:
-- `INGEST_MODE=extract|ingest|resume_extract|resume_ingest` (default `ingest`)
+- `INGEST_MODE=extract|ingest|resume` (default `ingest`)
 - `INGEST_ON_ERROR=fail|skip` (default `fail`)
-- `INGEST_TASK_ID=<task_uuid>` (required for `resume_*`)
+- `INGEST_TASK_ID=<task_uuid>` (required for `resume`)
 - `INGEST_PDF_DIR=var/pdfs` (used by `INGEST_MODE=extract`)
-- `INGEST_CHUNKS_DIR=/app/var/extracted` (used by `INGEST_MODE=ingest`, docker path)
+- `INGEST_CHUNKS_DIR=var/extracted` (used by `INGEST_MODE=ingest`)
 - `INGEST_EXTRACT_OUTPUT_DIR=var/extracted` (used by `INGEST_MODE=extract`)
 - `PYTHON_BIN=.venv/bin/python` (local Python interpreter)
 - `INGEST_FORCE=1` (adds `--force`)
@@ -198,9 +197,8 @@ uvicorn apps.api.main:app --reload --port 18080
     - `resume` = continue existing task by `--task-id`
   - Wrapper script mode (`INGEST_MODE`) is environment-specific:
     - `extract` = host/local extract
-    - `ingest` = docker chunks ingest
-    - `resume_extract` = host/local resume
-    - `resume_ingest` = docker resume
+    - `ingest` = host/local chunks ingest
+    - `resume` = host/local resume
 - Chunk sanitization:
   - Base text cleanup runs before chunking in extraction.
   - Chunk sanitizer runs after chunking (before embeddings/Qdrant upsert): `CHUNK_SANITIZE_ENABLED`, `CHUNK_SANITIZE_MIN_WORDS`, `CHUNK_SANITIZE_DEDUP`.
@@ -277,7 +275,7 @@ See `apps/agent/README.md` for detailed documentation.
 - PDFs are mounted read-only into the API container at `/data/pdfs`.
 - Docker image intentionally excludes `docling` extraction dependencies.
 - Extract flow is host/local only (`INGEST_MODE=extract`).
-- Ingest-from-chunks flow is docker only (`INGEST_MODE=ingest`).
+- Ingest-from-chunks flow is host/local (`INGEST_MODE=ingest`).
 - PDF text extraction:
   - Applies to host/local extract flow (`INGEST_MODE=extract`).
   - `PDF_TEXT_EXTRACTOR=docling` (default)

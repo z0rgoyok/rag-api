@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import time
 from typing import Callable, Literal
 import uuid
 
@@ -21,7 +22,7 @@ from core.schema import ensure_ingest_task_schema, ensure_schema, get_schema_inf
 
 from .chunk_sanitize import sanitize_chunks
 from .extract_output import build_extract_output_path, is_extract_output_up_to_date, write_extract_output
-from .pdf_extract import extract_pdf_docling_chunks, extract_pdf_text_pages
+from .pdf_extract import describe_pdf_extraction_mode, extract_pdf_docling_chunks, extract_pdf_text_pages
 from .store import is_document_up_to_date, replace_document_content, sha256_file
 from .task_store import (
     InputMode,
@@ -339,6 +340,7 @@ async def _run_ingest_task(
     extract_output_dir: Path | None,
     force: bool,
 ) -> None:
+    task_started_at = time.monotonic()
     while True:
         touch_ingest_task(db, task_id=task_id)
         item = claim_next_ingest_task_item(db, task_id=task_id)
@@ -362,7 +364,15 @@ async def _run_ingest_task(
             mark_ingest_task_failed(db, task_id=task_id, error=error)
             raise RuntimeError(error)
 
-        print(f"item_start task_id={task_id} ordinal={item.ordinal} attempt={item.attempt} path={source_file}")
+        item_started_at = time.monotonic()
+        if input_mode == "pdf":
+            mode_text = describe_pdf_extraction_mode(source_file)
+            print(
+                f"item_start task_id={task_id} ordinal={item.ordinal} attempt={item.attempt} "
+                f"path={source_file} {mode_text}"
+            )
+        else:
+            print(f"item_start task_id={task_id} ordinal={item.ordinal} attempt={item.attempt} path={source_file}")
         try:
             touch()
             if input_mode == "pdf":
@@ -400,7 +410,7 @@ async def _run_ingest_task(
             print(
                 f"item_done task_id={task_id} ordinal={item.ordinal} outcome={outcome} "
                 f"done={stats.completed_items} failed={stats.failed_items} skipped={stats.skipped_items} total={stats.total_items}"
-                f"{out_hint}"
+                f"{out_hint} elapsed_s={time.monotonic() - item_started_at:.2f}"
             )
         except Exception as e:
             error = _exception_text(e)
@@ -409,11 +419,16 @@ async def _run_ingest_task(
                 stats = get_ingest_task_stats(db, task_id=task_id)
                 print(
                     f"item_skip task_id={task_id} ordinal={item.ordinal} reason={error} "
-                    f"done={stats.completed_items} failed={stats.failed_items} skipped={stats.skipped_items} total={stats.total_items}"
+                    f"done={stats.completed_items} failed={stats.failed_items} skipped={stats.skipped_items} total={stats.total_items} "
+                    f"elapsed_s={time.monotonic() - item_started_at:.2f}"
                 )
                 continue
             mark_ingest_task_item_failed(db, task_item_id=item.id, error=error)
             mark_ingest_task_failed(db, task_id=task_id, error=error)
+            print(
+                f"item_fail task_id={task_id} ordinal={item.ordinal} reason={error} "
+                f"elapsed_s={time.monotonic() - item_started_at:.2f}"
+            )
             raise
 
     mark_ingest_task_completed_if_done(db, task_id=task_id)
@@ -422,7 +437,8 @@ async def _run_ingest_task(
     if task is not None:
         print(
             f"task_done id={task.id} status={task.status} "
-            f"done={stats.completed_items} failed={stats.failed_items} skipped={stats.skipped_items} total={stats.total_items}"
+            f"done={stats.completed_items} failed={stats.failed_items} skipped={stats.skipped_items} total={stats.total_items} "
+            f"elapsed_s={time.monotonic() - task_started_at:.2f}"
         )
 
 
