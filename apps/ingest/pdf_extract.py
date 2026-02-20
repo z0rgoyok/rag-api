@@ -235,7 +235,7 @@ def _build_docling_converter(path: Path) -> tuple[_DoclingConverter, set[object]
             min_chars=_env_int("DOCLING_OCR_AUTO_MIN_CHARS", 20, min_value=1, max_value=10000),
             sample_pages=_env_int("DOCLING_OCR_AUTO_SAMPLE_PAGES", 0, min_value=0),
         )
-        threshold = _env_float("DOCLING_OCR_AUTO_TEXT_LAYER_THRESHOLD", 0.95, min_value=0.0, max_value=1.0)
+        threshold = _env_float("DOCLING_OCR_AUTO_TEXT_LAYER_THRESHOLD", 0.9, min_value=0.0, max_value=1.0)
         if text_layer_ratio is not None and text_layer_ratio >= threshold:
             if not force_backend_text_explicit:
                 force_backend_text = True

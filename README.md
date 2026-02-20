@@ -289,7 +289,7 @@ See `apps/agent/README.md` for detailed documentation.
   - `DOCLING_DO_PICTURE_CLASSIFICATION=1|0` (default `0`)
   - `DOCLING_DO_PICTURE_DESCRIPTION=1|0` (default `0`)
   - `DOCLING_OCR_AUTO=1|0` (default `1`, auto-disable OCR for PDFs with strong text layer)
-  - `DOCLING_OCR_AUTO_TEXT_LAYER_THRESHOLD=0..1` (default `0.95`)
+  - `DOCLING_OCR_AUTO_TEXT_LAYER_THRESHOLD=0..1` (default `0.9`)
   - `DOCLING_OCR_AUTO_MIN_CHARS` (default `20`, page is considered text-layer if extracted chars >= this value)
   - `DOCLING_OCR_AUTO_SAMPLE_PAGES` (default `0`, check all pages; use `N` to sample `N` evenly spaced pages)
   - To debug what gets ingested, set `PDF_DUMP_MD=1` and re-ingest; the extracted markdown-ish text is written under `var/extracted/*.md` (override with `PDF_DUMP_DIR`).

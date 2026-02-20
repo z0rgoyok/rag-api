@@ -22,7 +22,7 @@ Notes:
       DOCLING_DO_PICTURE_CLASSIFICATION=0
       DOCLING_DO_PICTURE_DESCRIPTION=0
       DOCLING_OCR_AUTO=1
-      DOCLING_OCR_AUTO_TEXT_LAYER_THRESHOLD=0.95
+      DOCLING_OCR_AUTO_TEXT_LAYER_THRESHOLD=0.9
       DOCLING_OCR_AUTO_MIN_CHARS=20
       DOCLING_OCR_AUTO_SAMPLE_PAGES=0
       PDF_DUMP_MD=1
@@ -107,7 +107,7 @@ docling_include_pictures="${DOCLING_INCLUDE_PICTURES:-0}"
 docling_do_picture_classification="${DOCLING_DO_PICTURE_CLASSIFICATION:-0}"
 docling_do_picture_description="${DOCLING_DO_PICTURE_DESCRIPTION:-0}"
 docling_ocr_auto="${DOCLING_OCR_AUTO:-1}"
-docling_ocr_auto_threshold="${DOCLING_OCR_AUTO_TEXT_LAYER_THRESHOLD:-0.95}"
+docling_ocr_auto_threshold="${DOCLING_OCR_AUTO_TEXT_LAYER_THRESHOLD:-0.9}"
 docling_ocr_auto_min_chars="${DOCLING_OCR_AUTO_MIN_CHARS:-20}"
 docling_ocr_auto_sample_pages="${DOCLING_OCR_AUTO_SAMPLE_PAGES:-0}"
 heartbeat_sec="${PDF_LOG_HEARTBEAT_SEC:-15}"
