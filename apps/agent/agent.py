@@ -30,6 +30,7 @@ Important:
 - Base your answer ONLY on information from search results.
 - If the knowledge base doesn't contain relevant information, say so honestly.
 - Cite sources when providing information.
+- Answer directly without meta-intros; do not say "according to the provided text/context".
 - Be concise but complete."""
 
 

@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import json
+import re
 from typing import Any
 import uuid
 
@@ -56,6 +57,33 @@ reranker = build_reranker(
 )
 
 log = logging.getLogger("rag_api")
+
+_RE_QUERY_KEY = re.compile(r"([?&]key=)([^&\s]+)", re.IGNORECASE)
+_RE_BEARER = re.compile(r"(Bearer\s+)[^\s,;]+", re.IGNORECASE)
+_RE_API_KEY = re.compile(r"((?:api[_-]?key|apikey)\s*[=:]\s*)([^\s,;]+)", re.IGNORECASE)
+_RAG_CONTEXT_SYSTEM_PREFIX = (
+    "Answer directly in the user's language. "
+    "Return only the answer, without meta-intros or process narration. "
+    "Never mention retrieval, context, snippets, passages, sources, or that text was provided. "
+    "If information is insufficient, say that directly.\n\n"
+    "INTERNAL_EVIDENCE (never mention this block):\n"
+)
+_RAG_STYLE_GUARD = (
+    "Style rule (highest priority): start with the direct fact/answer immediately. "
+    "Never start with meta formulations such as "
+    "\"according to the text/context\", \"based on the provided text\", "
+    "\"согласно предоставленному тексту\", \"согласно контексту\"."
+)
+
+
+def _sanitize_error_text(text: str) -> str:
+    out = text.strip()
+    if not out:
+        return ""
+    out = _RE_QUERY_KEY.sub(r"\1REDACTED", out)
+    out = _RE_BEARER.sub(r"\1REDACTED", out)
+    out = _RE_API_KEY.sub(r"\1REDACTED", out)
+    return out
 
 app = FastAPI(title="rag-api", version="0.1.0")
 auth_dep = auth_dependency(db, settings.allow_anonymous)
@@ -170,14 +198,13 @@ async def chat_completions(
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "Answer directly in the user's language using CONTEXT when relevant. "
-                    "Do not mention retrieval process, context, sources, or 'provided text' unless the user explicitly asks about evidence/source provenance. "
-                    "If information is insufficient, say that directly.\n\nCONTEXT:\n"
-                )
-                + context_text,
+                "content": _RAG_CONTEXT_SYSTEM_PREFIX + context_text,
             },
             *messages,
+            {
+                "role": "system",
+                "content": _RAG_STYLE_GUARD,
+            },
         ]
 
     upstream_model = req.model or settings.chat_model
@@ -227,8 +254,14 @@ async def chat_completions(
             data = await chat_client.chat_completions(payload)
         except Exception as e:
             # Never leak upstream secrets (e.g. API keys embedded in URLs).
-            log.error("request_id=%s upstream_error=%s", request_id, type(e).__name__)
-            return JSONResponse({"error": {"message": "Upstream chat provider failed"}}, status_code=502)
+            details = _sanitize_error_text(str(e)) or "unknown upstream error"
+            log.error(
+                "request_id=%s upstream_error=%s details=%s",
+                request_id,
+                type(e).__name__,
+                details,
+            )
+            return JSONResponse({"error": {"message": f"Upstream chat provider failed: {details}"}}, status_code=502)
         if include_sources:
             data["sources"] = sources
         if (os.getenv("LOG_COMPLETIONS") or "").strip().lower() in {"1", "true", "yes", "on"}:
@@ -268,7 +301,6 @@ async def chat_completions(
                     before, after = chunk.split(b"data: [DONE]", 1)
                     if before:
                         yield before
-                    import json
 
                     meta = {"sources": sources}
                     yield f"data: {json.dumps(meta)}\n\n".encode("utf-8")
@@ -279,7 +311,14 @@ async def chat_completions(
                     continue
                 yield chunk
         except Exception as e:
-            log.error("request_id=%s upstream_stream_error=%s", request_id, type(e).__name__)
+            details = _sanitize_error_text(str(e)) or "unknown upstream stream error"
+            log.error(
+                "request_id=%s upstream_stream_error=%s details=%s",
+                request_id,
+                type(e).__name__,
+                details,
+            )
+            yield f"data: {json.dumps({'error': {'message': details, 'type': type(e).__name__}})}\n\n".encode("utf-8")
             # Return a terminal chunk in SSE format.
             yield b"data: [DONE]\n\n"
         finally:

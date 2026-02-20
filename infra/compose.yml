@@ -80,3 +80,51 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
+
+  nextchat:
+    image: yidadaa/chatgpt-next-web:latest
+    environment:
+      # NextChat appends /v1 internally; keep BASE_URL without /v1 suffix.
+      BASE_URL: ${NEXTCHAT_BASE_URL:-http://api:8080}
+      OPENAI_API_KEY: ${NEXTCHAT_OPENAI_API_KEY:-}
+      CUSTOM_MODELS: ${NEXTCHAT_CUSTOM_MODELS:-}
+      DEFAULT_MODEL: ${NEXTCHAT_DEFAULT_MODEL:-}
+      CODE: ${NEXTCHAT_CODE:-}
+      NEXTCHAT_ENABLE_REALTIME_DEFAULT: ${NEXTCHAT_ENABLE_REALTIME_DEFAULT:-1}
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        set -e
+        if [ "$${NEXTCHAT_ENABLE_REALTIME_DEFAULT:-1}" = "1" ] || [ "$${NEXTCHAT_ENABLE_REALTIME_DEFAULT:-}" = "true" ]; then
+          pattern='realtimeConfig:{enable:!1,provider:"OpenAI",model:"gpt-4o-realtime-preview-2024-10-01"'
+          replacement='realtimeConfig:{enable:!0,provider:"OpenAI",model:"gpt-4o-realtime-preview-2024-10-01"'
+          find /app/.next -type f -name '*.js' -print0 \
+            | xargs -0 sed -i "s|$${pattern}|$${replacement}|g" || true
+          echo "[nextchat] realtime default enabled"
+        fi
+        if [ -n "$$PROXY_URL" ]; then
+          export HOSTNAME="0.0.0.0"
+          protocol=$$(echo $$PROXY_URL | cut -d: -f1)
+          host=$$(echo $$PROXY_URL | cut -d/ -f3 | cut -d: -f1)
+          port=$$(echo $$PROXY_URL | cut -d: -f3)
+          conf=/etc/proxychains.conf
+          echo "strict_chain" > $$conf
+          echo "proxy_dns" >> $$conf
+          echo "remote_dns_subnet 224" >> $$conf
+          echo "tcp_read_time_out 15000" >> $$conf
+          echo "tcp_connect_time_out 8000" >> $$conf
+          echo "localnet 127.0.0.0/255.0.0.0" >> $$conf
+          echo "localnet ::1/128" >> $$conf
+          echo "[ProxyList]" >> $$conf
+          echo "$$protocol $$host $$port" >> $$conf
+          cat /etc/proxychains.conf
+          exec proxychains -f $$conf node server.js
+        else
+          exec node server.js
+        fi
+    ports:
+      - "${NEXTCHAT_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_started

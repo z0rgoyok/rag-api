@@ -25,7 +25,7 @@ Goals:
 cp /path/to/*.pdf var/pdfs/
 ```
 
-1. Start services (PostgreSQL + Qdrant + API):
+1. Start services (PostgreSQL + Qdrant + API + NextChat UI):
 
 ```bash
 ./scripts/up.sh
@@ -88,6 +88,13 @@ INGEST_MODE=ingest INGEST_ON_ERROR=skip ./scripts/ingest.sh
 ```bash
 ./scripts/health.sh
 ```
+
+NextChat UI is exposed on `http://localhost:${NEXTCHAT_PORT:-3000}`.
+It is preconfigured to call the local API container via `NEXTCHAT_BASE_URL=http://api:8080` (without `/v1`).
+Realtime Chat toggle default can be controlled with `NEXTCHAT_ENABLE_REALTIME_DEFAULT` (`1` by default).
+
+When `ALLOW_ANONYMOUS=false`, set `NEXTCHAT_OPENAI_API_KEY` in `.env` to a valid rag-api key
+(create one with `./scripts/create-api-key.sh`).
 
 ## Local (non-docker) workflow (optional)
 
