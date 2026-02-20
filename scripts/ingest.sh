@@ -17,6 +17,16 @@ format_elapsed() {
 }
 
 started_at="${SECONDS}"
+repo="$(repo_root)"
+
+# Load local .env for wrapper-level INGEST_* variables too (not only for docker compose).
+env_file="${repo}/.env"
+if [[ -f "${env_file}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${env_file}"
+  set +a
+fi
 
 mode_raw="${INGEST_MODE:-ingest}"
 
@@ -66,7 +76,6 @@ esac
 
 if [[ -n "${INGEST_FORCE:-}" ]]; then ingest_args+=(--force); fi
 
-repo="$(repo_root)"
 python_bin="${PYTHON_BIN:-${repo}/.venv/bin/python}"
 if [[ ! -x "${python_bin}" ]]; then
   if command -v python3 >/dev/null 2>&1; then
