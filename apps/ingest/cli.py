@@ -20,7 +20,7 @@ from core.embeddings_client import EmbeddingsClient, build_embeddings_client
 from core.qdrant import Qdrant
 from core.schema import ensure_ingest_task_schema, ensure_schema, get_schema_info
 
-from .chunk_sanitize import sanitize_chunks
+from .chunk_sanitize import SanitizedChunk, sanitize_chunks, sanitize_chunks_with_raw
 from .extract_output import build_extract_output_path, is_extract_output_up_to_date, write_extract_output
 from .pdf_extract import describe_pdf_extraction_mode, extract_pdf_docling_chunks, extract_pdf_text_pages
 from .store import is_document_up_to_date, replace_document_content, sha256_file
@@ -148,7 +148,7 @@ def _build_chunker(
     )
 
 
-def _extract_chunks(*, pdf_path: Path, chunker: ChunkingStrategy | None, chunking_strategy: str) -> list[Chunk]:
+def _extract_chunks(*, pdf_path: Path, chunker: ChunkingStrategy | None, chunking_strategy: str) -> list[SanitizedChunk]:
     chunks: list[Chunk]
     if chunking_strategy in {"docling_hierarchical", "docling_hybrid"}:
         docling_chunks = extract_pdf_docling_chunks(pdf_path, strategy=chunking_strategy)
@@ -166,7 +166,7 @@ def _extract_chunks(*, pdf_path: Path, chunker: ChunkingStrategy | None, chunkin
         pages = extract_pdf_text_pages(pdf_path)
         page_texts = [PageText(page=p.page, text=p.text) for p in pages]
         chunks = chunker.chunk(page_texts)
-    return sanitize_chunks(chunks)
+    return sanitize_chunks_with_raw(chunks)
 
 
 async def ingest_pdf(
@@ -202,11 +202,13 @@ async def ingest_pdf(
         if not force and is_document_up_to_date(qdrant, source_path=source_path, sha256=file_hash):
             return "up_to_date"
 
-    chunks = _extract_chunks(
+    sanitized_rows = _extract_chunks(
         pdf_path=pdf_path,
         chunker=chunker,
         chunking_strategy=chunking_strategy,
     )
+    chunks = [row.chunk for row in sanitized_rows]
+    raw_contents = [row.raw_content for row in sanitized_rows]
     if touch:
         touch()
     if not chunks:
@@ -221,6 +223,7 @@ async def ingest_pdf(
             source_sha256=file_hash,
             chunking_strategy=chunking_strategy,
             chunks=chunks,
+            raw_contents=raw_contents,
         )
         if touch:
             touch()
@@ -340,6 +343,13 @@ async def _run_ingest_task(
     extract_output_dir: Path | None,
     force: bool,
 ) -> None:
+    if pipeline_mode == "extract_only":
+        mode_label = "extract"
+    elif input_mode == "chunks":
+        mode_label = "ingest"
+    else:
+        mode_label = "pdf_full"
+
     task_started_at = time.monotonic()
     while True:
         touch_ingest_task(db, task_id=task_id)
@@ -369,10 +379,13 @@ async def _run_ingest_task(
             mode_text = describe_pdf_extraction_mode(source_file)
             print(
                 f"item_start task_id={task_id} ordinal={item.ordinal} attempt={item.attempt} "
-                f"path={source_file} {mode_text}"
+                f"path={source_file} mode={mode_label} {mode_text}"
             )
         else:
-            print(f"item_start task_id={task_id} ordinal={item.ordinal} attempt={item.attempt} path={source_file}")
+            print(
+                f"item_start task_id={task_id} ordinal={item.ordinal} attempt={item.attempt} "
+                f"path={source_file} mode={mode_label}"
+            )
         try:
             touch()
             if input_mode == "pdf":
@@ -410,7 +423,7 @@ async def _run_ingest_task(
             print(
                 f"item_done task_id={task_id} ordinal={item.ordinal} outcome={outcome} "
                 f"done={stats.completed_items} failed={stats.failed_items} skipped={stats.skipped_items} total={stats.total_items}"
-                f"{out_hint} elapsed_s={time.monotonic() - item_started_at:.2f}"
+                f"{out_hint} mode={mode_label} elapsed_s={time.monotonic() - item_started_at:.2f}"
             )
         except Exception as e:
             error = _exception_text(e)
@@ -420,14 +433,14 @@ async def _run_ingest_task(
                 print(
                     f"item_skip task_id={task_id} ordinal={item.ordinal} reason={error} "
                     f"done={stats.completed_items} failed={stats.failed_items} skipped={stats.skipped_items} total={stats.total_items} "
-                    f"elapsed_s={time.monotonic() - item_started_at:.2f}"
+                    f"mode={mode_label} elapsed_s={time.monotonic() - item_started_at:.2f}"
                 )
                 continue
             mark_ingest_task_item_failed(db, task_item_id=item.id, error=error)
             mark_ingest_task_failed(db, task_id=task_id, error=error)
             print(
                 f"item_fail task_id={task_id} ordinal={item.ordinal} reason={error} "
-                f"elapsed_s={time.monotonic() - item_started_at:.2f}"
+                f"mode={mode_label} elapsed_s={time.monotonic() - item_started_at:.2f}"
             )
             raise
 

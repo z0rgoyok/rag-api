@@ -46,10 +46,15 @@ def write_extract_output(
     source_sha256: str,
     chunking_strategy: str,
     chunks: list[Chunk],
+    raw_contents: list[str] | None = None,
 ) -> None:
+    if raw_contents is not None and len(raw_contents) != len(chunks):
+        raise RuntimeError(
+            f"Raw/clean chunk count mismatch for {pdf_path}: raw={len(raw_contents)} clean={len(chunks)}"
+        )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as f:
-        for chunk in chunks:
+        for idx, chunk in enumerate(chunks):
             line = {
                 "source_path": str(pdf_path),
                 "source_sha256": source_sha256,
@@ -58,4 +63,6 @@ def write_extract_output(
                 "page": chunk.page,
                 "content": chunk.content,
             }
+            if raw_contents is not None:
+                line["content_raw"] = raw_contents[idx]
             f.write(json.dumps(line, ensure_ascii=False) + "\n")

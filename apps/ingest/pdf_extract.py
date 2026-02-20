@@ -7,6 +7,8 @@ import re
 from typing import Any, Protocol
 import unicodedata
 
+from .chunk_sanitize import normalize_text_block
+
 @dataclass(frozen=True)
 class PdfPageText:
     page: int
@@ -37,7 +39,6 @@ class _DoclingConverter(Protocol):
     def convert(self, source: str) -> Any: ...
 
 
-_RE_CONTROL = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
 _RE_SAFE_FILENAME = re.compile(r"[<>:\"/\\|?*\u0000-\u001F]+")
 _PAGE_BREAK = "[[PAGE_BREAK]]"
 
@@ -66,19 +67,9 @@ def _repo_root() -> Path:
 
 
 def _clean_extracted_text(text: str) -> str:
-    if not text:
-        return ""
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    # Remove control chars (keep \n and \t semantics via normalization).
-    text = _RE_CONTROL.sub("", text)
-    # Remove soft hyphens that often appear in PDF text extraction.
-    text = text.replace("\u00ad", "")
-    # Normalize ligatures / compatibility chars.
-    text = unicodedata.normalize("NFKC", text)
-    # Collapse excessive whitespace while preserving paragraphs.
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+    # Use the same normalization pipeline as chunk sanitization so OCR/text-layer
+    # extraction is cleaned consistently before chunking.
+    return normalize_text_block(text)
 
 
 def _env_bool(name: str, default: bool) -> bool:

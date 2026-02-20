@@ -2,6 +2,22 @@
 set -euo pipefail
 source "$(dirname "$0")/_lib.sh"
 
+format_elapsed() {
+  local total="${1:-0}"
+  local h=$((total / 3600))
+  local m=$(((total % 3600) / 60))
+  local s=$((total % 60))
+  if ((h > 0)); then
+    printf '%dh %02dm %02ds' "${h}" "${m}" "${s}"
+  elif ((m > 0)); then
+    printf '%dm %02ds' "${m}" "${s}"
+  else
+    printf '%ds' "${s}"
+  fi
+}
+
+started_at="${SECONDS}"
+
 mode_raw="${INGEST_MODE:-ingest}"
 
 # Backward compatible aliases:
@@ -60,7 +76,19 @@ if [[ ! -x "${python_bin}" ]]; then
     exit 1
   fi
 fi
+set +e
 (
   cd "${repo}"
+  echo "ingest_start mode=${mode} cmd=${python_bin} -m apps.ingest.cli ${ingest_args[*]}"
   "${python_bin}" -m apps.ingest.cli "${ingest_args[@]}"
 )
+status=$?
+set -e
+
+elapsed=$((SECONDS - started_at))
+if [[ ${status} -eq 0 ]]; then
+  echo "ingest_done mode=${mode} elapsed=$(format_elapsed "${elapsed}") (${elapsed}s)"
+else
+  echo "ingest_fail mode=${mode} elapsed=$(format_elapsed "${elapsed}") (${elapsed}s) exit_code=${status}" >&2
+fi
+exit "${status}"
