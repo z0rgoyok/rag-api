@@ -14,15 +14,15 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from core.config import load_settings
 from core.db import Db
 from core.embeddings_client import build_embeddings_client
-from core.model_preflight import ensure_runtime_models
 from core.qdrant import Qdrant
+from core.reranking.factory import RerankingSettings, build_reranker
 from core.schema import ensure_schema, get_schema_info
 
 from .auth import Principal, auth_dependency
 from .chat_client import build_chat_client
 from .logging_config import configure_logging
 from .models import AgentChatRequest, AgentChatResponse, ChatCompletionsRequest
-from .retrieval import build_context, retrieve_top_k
+from .retrieval import build_context, rerank_segments, retrieve_top_k
 
 from apps.agent.agent import Agent, AgentConfig
 
@@ -38,6 +38,16 @@ qdrant = Qdrant(
 )
 chat_client = build_chat_client(settings)
 embed_client = build_embeddings_client(settings)
+reranker = build_reranker(
+    RerankingSettings(
+        strategy=settings.reranking_strategy,
+        retrieval_k=settings.reranking_retrieval_k,
+        lmstudio_base_url=settings.reranking_base_url,
+        lmstudio_api_key=settings.reranking_api_key,
+        lmstudio_model=settings.reranking_model,
+        lmstudio_batch_size=settings.reranking_batch_size,
+    )
+)
 
 log = logging.getLogger("rag_api")
 
@@ -74,21 +84,6 @@ def healthz() -> dict[str, Any]:
 
 @app.on_event("startup")
 async def _startup() -> None:
-    await ensure_runtime_models(
-        chat_backend=settings.chat_backend,
-        chat_base_url=settings.chat_base_url,
-        chat_api_key=settings.chat_api_key,
-        chat_model=settings.chat_model,
-        embeddings_backend=settings.embeddings_backend,
-        embeddings_base_url=settings.embeddings_base_url,
-        embeddings_api_key=settings.embeddings_api_key,
-        embeddings_model=settings.embeddings_model,
-        strict=settings.strict_model_startup,
-        auto_pull=settings.lmstudio_auto_pull,
-        require_chat=True,
-        require_embeddings=True,
-    )
-
     info = get_schema_info(db)
     if info is None:
         if settings.embedding_dim is not None:
@@ -104,8 +99,6 @@ async def _startup() -> None:
         try:
             dim = await embed_client.probe_embedding_dim(model=settings.embeddings_model)
         except Exception:
-            if settings.strict_model_startup:
-                raise
             return
         ensure_schema(db, qdrant, embedding_dim=dim, embedding_model=settings.embeddings_model)
         return
@@ -137,18 +130,31 @@ async def chat_completions(
     sources: list[dict[str, Any]] = []
     if req.rag and user_text.strip():
         qvec = (await embed_client.embeddings(model=settings.embeddings_model, input_texts=[user_text], input_type="RETRIEVAL_QUERY"))[0]
+        retrieval_k = settings.top_k
+        if settings.reranking_strategy != "none":
+            retrieval_k = max(settings.top_k, settings.reranking_retrieval_k)
         segments = retrieve_top_k(
             qdrant,
             query_text=user_text,
             query_embedding=qvec,
-            k=settings.top_k,
+            k=retrieval_k,
             use_fts=settings.retrieval_use_fts,
         )
+        if settings.reranking_strategy != "none" and segments:
+            segments = await rerank_segments(
+                query_text=user_text,
+                segments=segments,
+                reranker=reranker,
+                top_k=settings.top_k,
+            )
+        else:
+            segments = segments[: settings.top_k]
         log.info(
-            "request_id=%s rag_retrieve k=%s hits=%s include_sources=%s",
+            "request_id=%s rag_retrieve k=%s hits=%s reranking=%s include_sources=%s",
             request_id,
-            settings.top_k,
+            retrieval_k,
             len(segments),
+            settings.reranking_strategy,
             include_sources,
         )
         context_text, sources = build_context(segments, max_chars=settings.max_context_chars, include_sources=include_sources)

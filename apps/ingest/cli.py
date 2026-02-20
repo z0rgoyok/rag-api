@@ -17,7 +17,6 @@ from core.chunking.factory import ChunkingSettings
 from core.config import Settings, load_settings
 from core.db import Db
 from core.embeddings_client import EmbeddingsClient, build_embeddings_client
-from core.model_preflight import ensure_runtime_models
 from core.qdrant import Qdrant
 from core.schema import ensure_ingest_task_schema, ensure_schema, get_schema_info
 
@@ -147,30 +146,6 @@ def _build_chunker(
             similarity_threshold=similarity_threshold,
         )
     )
-
-
-def _run_model_preflight_if_needed(*, settings: Settings, pipeline_mode: PipelineMode) -> None:
-    if pipeline_mode != "full":
-        return
-    try:
-        asyncio.run(
-            ensure_runtime_models(
-                chat_backend=settings.chat_backend,
-                chat_base_url=settings.chat_base_url,
-                chat_api_key=settings.chat_api_key,
-                chat_model=settings.chat_model,
-                embeddings_backend=settings.embeddings_backend,
-                embeddings_base_url=settings.embeddings_base_url,
-                embeddings_api_key=settings.embeddings_api_key,
-                embeddings_model=settings.embeddings_model,
-                strict=settings.strict_model_startup,
-                auto_pull=settings.lmstudio_auto_pull,
-                require_chat=False,
-                require_embeddings=True,
-            )
-        )
-    except RuntimeError as e:
-        raise SystemExit(f"Model preflight failed: {_exception_text(e)}") from e
 
 
 def _extract_chunks(*, pdf_path: Path, chunker: ChunkingStrategy | None, chunking_strategy: str) -> list[SanitizedChunk]:
@@ -557,7 +532,6 @@ def main() -> None:
         if task.pipeline_mode == "extract_only":
             extract_dir_raw = task.extract_output_dir or args.extract_output_dir
             extract_output_dir = _resolve_extract_output_dir(extract_dir_raw)
-        _run_model_preflight_if_needed(settings=settings, pipeline_mode=task.pipeline_mode)
         print(f"task_resume id={task_id} prev_status={task.status}")
     else:
         if args.task_id:
@@ -607,8 +581,6 @@ def main() -> None:
 
         if requested_input_mode is None or requested_pipeline_mode is None:
             raise RuntimeError(f"Internal mode resolution error for --mode={mode}")
-
-        _run_model_preflight_if_needed(settings=settings, pipeline_mode=requested_pipeline_mode)
 
         task = create_ingest_task(
             db,

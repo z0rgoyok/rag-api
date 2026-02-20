@@ -5,7 +5,7 @@ from typing import Literal
 
 from .protocol import Reranker
 
-RerankingStrategyType = Literal["none", "cross_encoder", "cohere"]
+RerankingStrategyType = Literal["none", "lmstudio", "cross_encoder", "cohere"]
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,12 @@ class RerankingSettings:
     # How many candidates to fetch before reranking (retrieval_k)
     # Reranker will then pick top_k from these
     retrieval_k: int = 50
+
+    # lmstudio settings
+    lmstudio_base_url: str = "http://localhost:1234/v1"
+    lmstudio_api_key: str | None = None
+    lmstudio_model: str = "text-embedding-bge-reranker-v2-m3"
+    lmstudio_batch_size: int = 16
 
     # cross_encoder settings
     cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -51,6 +57,16 @@ def build_reranker(settings: RerankingSettings) -> Reranker:
         return CrossEncoderReranker(
             model_name=settings.cross_encoder_model,
             batch_size=settings.cross_encoder_batch_size,
+        )
+
+    if settings.strategy == "lmstudio":
+        from .lmstudio import LmStudioReranker
+
+        return LmStudioReranker(
+            base_url=settings.lmstudio_base_url,
+            api_key=settings.lmstudio_api_key,
+            model=settings.lmstudio_model,
+            batch_size=settings.lmstudio_batch_size,
         )
 
     if settings.strategy == "cohere":

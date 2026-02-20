@@ -180,10 +180,13 @@ uvicorn apps.api.main:app --reload --port 18080
   - `TOP_K` controls how many chunks are returned to context.
   - `RETRIEVAL_USE_FTS=1|0` toggles hybrid ranking (vector similarity + lexical score on retrieved candidates).
   - With `RETRIEVAL_USE_FTS=0`, returned `score` is pure vector similarity from Qdrant.
-- Model preflight:
-  - `STRICT_MODEL_STARTUP=1` makes API startup and ingest fail when configured models are unavailable.
-  - `LMSTUDIO_AUTO_PULL=1` tries to auto `lms get` + `lms load` missing models for local OpenAI-compatible endpoints.
-  - Auto-pull is best-effort and requires local `lms` CLI.
+  - Reranking:
+    - `RERANKING_STRATEGY=none|lmstudio|cross_encoder|cohere` (API path currently uses `none`/`lmstudio`)
+    - `RERANKING_RETRIEVAL_K` controls how many candidates are pulled before rerank.
+    - `RERANKING_MODEL` sets reranker model (for LM Studio: `text-embedding-bge-reranker-v2-m3`).
+    - `RERANKING_BASE_URL` / `RERANKING_API_KEY` optionally override provider endpoint for rerank.
+      - For local LM Studio, `RERANKING_API_KEY` is usually empty.
+    - `RERANKING_BATCH_SIZE` controls reranker embeddings batch size.
 - Ingest chunking strategy:
   - `CHUNKING_STRATEGY=recursive|sliding|semantic|docling_hierarchical|docling_hybrid`
   - `semantic` is the recommended default for PDF books.

@@ -13,7 +13,7 @@ ChunkingStrategyType = Literal[
     "docling_hierarchical",
     "docling_hybrid",
 ]
-RerankingStrategyType = Literal["none", "cross_encoder", "cohere"]
+RerankingStrategyType = Literal["none", "lmstudio", "cross_encoder", "cohere"]
 
 
 @dataclass(frozen=True)
@@ -38,10 +38,14 @@ class Settings:
     embeddings_vertex_credentials: str | None
     embedding_dim: int | None
     top_k: int
+    reranking_strategy: RerankingStrategyType
+    reranking_retrieval_k: int
+    reranking_base_url: str
+    reranking_api_key: str | None
+    reranking_model: str
+    reranking_batch_size: int
     max_context_chars: int
     retrieval_use_fts: bool
-    strict_model_startup: bool
-    lmstudio_auto_pull: bool
     allow_anonymous: bool
     # Chunking settings
     chunking_strategy: ChunkingStrategyType
@@ -77,6 +81,14 @@ def load_settings() -> Settings:
     embeddings_vertex_location = os.getenv("EMBEDDINGS_VERTEX_LOCATION") or os.getenv("VERTEX_LOCATION") or None
     embeddings_vertex_credentials = os.getenv("EMBEDDINGS_VERTEX_CREDENTIALS") or os.getenv("VERTEX_CREDENTIALS") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or None
 
+    reranking_strategy_raw = (os.getenv("RERANKING_STRATEGY") or "none").strip().lower()
+    if reranking_strategy_raw not in ("none", "lmstudio", "cross_encoder", "cohere"):
+        reranking_strategy_raw = "none"
+    reranking_strategy: RerankingStrategyType = reranking_strategy_raw  # type: ignore[assignment]
+    reranking_base_url = (os.getenv("RERANKING_BASE_URL") or default_base_url).rstrip("/")
+    reranking_api_key = os.getenv("RERANKING_API_KEY") or None
+    reranking_model = (os.getenv("RERANKING_MODEL") or "text-embedding-bge-reranker-v2-m3").strip()
+
     # Chunking settings
     chunking_strategy_raw = os.getenv("CHUNKING_STRATEGY", "semantic").strip().lower()
     if chunking_strategy_raw not in (
@@ -110,10 +122,14 @@ def load_settings() -> Settings:
         embeddings_vertex_credentials=embeddings_vertex_credentials,
         embedding_dim=int(os.environ["EMBEDDING_DIM"]) if os.getenv("EMBEDDING_DIM") else None,
         top_k=int(os.getenv("TOP_K", "6")),
+        reranking_strategy=reranking_strategy,
+        reranking_retrieval_k=int(os.getenv("RERANKING_RETRIEVAL_K", "40")),
+        reranking_base_url=reranking_base_url,
+        reranking_api_key=reranking_api_key,
+        reranking_model=reranking_model,
+        reranking_batch_size=int(os.getenv("RERANKING_BATCH_SIZE", "16")),
         max_context_chars=int(os.getenv("MAX_CONTEXT_CHARS", "24000")),
         retrieval_use_fts=_bool("RETRIEVAL_USE_FTS", True),
-        strict_model_startup=_bool("STRICT_MODEL_STARTUP", False),
-        lmstudio_auto_pull=_bool("LMSTUDIO_AUTO_PULL", False),
         allow_anonymous=_bool("ALLOW_ANONYMOUS", False),
         chunking_strategy=chunking_strategy,
         chunking_chunk_size=int(os.getenv("CHUNKING_CHUNK_SIZE", "512")),
